@@ -203,8 +203,23 @@ def _is_gemma(model: str) -> bool:
     return bool(model and "gemma" in model.lower())
 
 
-def build_extra_body(model: str, enable_thinking: bool) -> dict:
-    """Build the extra_body for LLM calls, branching on model family.
+def build_extra_body(model: str, enable_thinking: bool,
+                     venice: Optional[bool] = None,
+                     venice_parameters: Optional[dict] = None) -> dict:
+    """Build the extra_body for LLM calls, branching on provider/model.
+
+    Venice AI (api.venice.ai): its ChatCompletionRequest is
+    additionalProperties:false — a top-level `enable_thinking` is rejected
+    with 400 "Invalid request parameters" (probed live 2026-11-21). With
+    venice=True the body carries `venice_parameters` instead:
+      - include_venice_system_prompt: False — our prompts are hand-built;
+        Venice's own default preamble is not appended
+      - strip_thinking_response: True — reasoning blocks stay out of the
+        reply text (no-op on non-thinking models)
+      - disable_thinking: True — only when thinking is switched OFF here
+    `venice_parameters` (from chat config) merges OVER those defaults, so
+    e.g. {"include_venice_system_prompt": true} or {"enable_web_search":
+    "off"} can be set by hand in config.jsonc.
 
     Ollama's OpenAI-compatible /v1/chat/completions endpoint maps
     reasoning_effort to the internal Think field:
@@ -214,6 +229,23 @@ def build_extra_body(model: str, enable_thinking: bool) -> dict:
     the compat endpoint. Gemma models go through Ollama; non-Gemma models
     (DeepSeek, Qwen via OpenRouter etc.) use the standard enable_thinking.
     """
+    if venice is None:
+        venice = getattr(db, "CHAT_VENICE", False)
+        if venice_parameters is None:
+            venice_parameters = getattr(db, "CHAT_VENICE_PARAMETERS", {}) or {}
+    if venice:
+        # The explicit tick wins over the model-family branch: if the
+        # endpoint is Venice, only Venice-accepted fields may be sent.
+        vp = {
+            "include_venice_system_prompt": False,
+            "strip_thinking_response": True,
+        }
+        if not enable_thinking:
+            vp["disable_thinking"] = True
+        if venice_parameters:
+            vp.update({k: v for k, v in venice_parameters.items()
+                       if v is not None})
+        return {"venice_parameters": vp}
     if _is_gemma(model):
         if not enable_thinking:
             return {"reasoning_effort": "none"}

@@ -16,6 +16,7 @@ async function openSettings() {
     document.getElementById('cfgChatTopP').value = cfg.chat.top_p != null ? cfg.chat.top_p : '';
     document.getElementById('cfgChatTopK').value = cfg.chat.top_k != null ? cfg.chat.top_k : '';
     document.getElementById('cfgChatEnableThinking').checked = cfg.chat.enable_thinking ?? false;
+    document.getElementById('cfgChatVenice').checked = cfg.chat.venice ?? false;
     document.getElementById('cfgAnalysisBaseUrl').value = cfg.analysis.base_url || '';
     document.getElementById('cfgAnalysisApiKey').value = cfg.analysis.api_key || '';
     document.getElementById('cfgAnalysisModel').value = cfg.analysis.model || '';
@@ -105,6 +106,7 @@ async function saveSettings() {
         top_p: (() => { const v = document.getElementById('cfgChatTopP').value.trim(); return v === '' ? null : (parseFloat(v) ?? 1.0); })(),
         top_k: (() => { const v = document.getElementById('cfgChatTopK').value.trim(); return v === '' ? null : (isNaN(v) ? null : parseInt(v)); })(),
         enable_thinking: document.getElementById('cfgChatEnableThinking').checked,
+        venice: document.getElementById('cfgChatVenice').checked,
       },
       analysis: {
         base_url: document.getElementById('cfgAnalysisBaseUrl').value.trim(),

@@ -119,7 +119,9 @@ def save_config(cfg: dict):
     lines.append(f'    "max_tokens": {int(chat.get("max_tokens", 2000))},')
     lines.append(f'    "top_p": {_json_val(chat.get("top_p"))},')
     lines.append(f'    "top_k": {_json_val(chat.get("top_k"))},')
-    lines.append(f'    "enable_thinking": {"true" if chat.get("enable_thinking", False) else "false"}')
+    lines.append(f'    "enable_thinking": {"true" if chat.get("enable_thinking", False) else "false"},')
+    lines.append(f'    "venice": {"true" if chat.get("venice", False) else "false"},')
+    lines.append('    "venice_parameters": ' + json.dumps(chat.get("venice_parameters") or {}))
     lines.append('  },')
     ana = cfg.get("analysis", {})
     lines.append('')
@@ -230,6 +232,10 @@ def reload_config():
     CHAT_TEMPERATURE = _chat_cfg.get("temperature", 0.8)
     CHAT_MAX_TOKENS  = _chat_cfg.get("max_tokens", 2000)
     CHAT_ENABLE_THINKING = _chat_cfg.get("enable_thinking", False)
+    # Venice AI (api.venice.ai) rejects unknown top-level fields with 400 —
+    # when ticked, requests carry venice_parameters instead of enable_thinking.
+    CHAT_VENICE = bool(_chat_cfg.get("venice", False))
+    CHAT_VENICE_PARAMETERS = _chat_cfg.get("venice_parameters") or {}
     CHAT_TOP_P = _normalize_float(_chat_cfg.get("top_p"))
     CHAT_TOP_K = _normalize_int(_chat_cfg.get("top_k"))
     ANALYSIS_BASE_URL    = os.environ.get("KEDAIKOPI_ANALYSIS_BASE_URL",    _analysis_cfg.get("base_url", "https://openrouter.ai/api/v1"))
@@ -313,6 +319,10 @@ CHAT_MODEL       = os.environ.get("KEDAIKOPI_CHAT_MODEL",       _chat_cfg.get("m
 CHAT_TEMPERATURE = _chat_cfg.get("temperature", 0.8)
 CHAT_MAX_TOKENS  = _chat_cfg.get("max_tokens", 2000)
 CHAT_ENABLE_THINKING = _chat_cfg.get("enable_thinking", False)
+# Venice AI (api.venice.ai) rejects unknown top-level fields with 400 —
+# when ticked, requests carry venice_parameters instead of enable_thinking.
+CHAT_VENICE = bool(_chat_cfg.get("venice", False))
+CHAT_VENICE_PARAMETERS = _chat_cfg.get("venice_parameters") or {}
 CHAT_TOP_P = _normalize_float(_chat_cfg.get("top_p"))
 CHAT_TOP_K = _normalize_int(_chat_cfg.get("top_k"))
 
