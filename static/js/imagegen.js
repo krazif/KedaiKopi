@@ -588,3 +588,5 @@ function previewGalleryImage(img) {
 
 // ─── Boot (runs after all scripts loaded) ───────
 loadCardList();
+loadRPSessions();  // RP is the only mode: the sidebar list must load here
+                   // (in the parent this ran via switchMode('rp') on tab click)
