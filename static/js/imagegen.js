@@ -26,7 +26,7 @@ function openGenerateSceneModal() {
     rollGenSceneSeed();
   }
   checkComfyUIStatus();
-  autoFillGenScenePrompt();
+  doAutogenPrompt();  // prefill with a full MOSS caption (old concat is gone)
   loadImageGallery();
 }
 
@@ -300,48 +300,11 @@ function renderImageGallery() {
   }
 }
 
-function autoFillGenScenePrompt() {
-  let prompt = '';
-  const lastMsgs = rpMessages;
-  // Find last non-empty message content for scene context
-  let lastContent = '';
-  for (let i = lastMsgs.length - 1; i >= 0; i--) {
-    if (lastMsgs[i].content && lastMsgs[i].content.trim()) {
-      lastContent = lastMsgs[i].content.trim();
-      break;
-    }
-  }
-  // Extract appearance/description from character cards
-  // RP mode: use last speaker's character data
-  const lastSpeaker = lastMsgs.length > 0 ? lastMsgs[lastMsgs.length - 1].speaker : null;
-  if (lastSpeaker && rpCharacters.length > 0) {
-    const char = rpCharacters.find(c => c.name === lastSpeaker);
-    if (char) {
-      prompt = `Scene featuring ${lastSpeaker}`;
-      // We don't have full card data in rpCharacters, just name+filename
-      // Use the last message content as scene context
-    } else {
-      prompt = `Scene featuring ${lastSpeaker || 'characters'}`;
-    }
-  } else if (rpCharacters.length > 0) {
-    prompt = `Scene featuring ${rpCharacters.map(c => c.name).join(', ')}`;
-  } else {
-    prompt = 'Scene';
-  }
-  // Append scene context from last message (truncated)
-  if (lastContent) {
-    const sceneHint = lastContent.substring(0, 300).replace(/\n/g, ' ');
-    prompt += `. Scene context: ${sceneHint}`;
-  }
-  prompt += `. High quality, detailed, cinematic lighting.`;
-  document.getElementById('genScenePrompt').value = prompt;
-}
-
 async function doAutogenPrompt() {
   const statusEl = document.getElementById('genSceneStatus');
   const btn = document.getElementById('genSceneAutogenBtn');
   const lastMsgs = rpMessages;
-  const recent = lastMsgs.slice(-3).map(m => ({
+  const recent = lastMsgs.map(m => ({  // server windows to caption_window
     role: m.role || m.speaker || 'user',
     speaker: m.speaker || m.name || '',
     content: m.content || '',
@@ -357,7 +320,7 @@ async function doAutogenPrompt() {
     const r = await fetch('/api/imagegen/auto-prompt', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: recent }),
+      body: JSON.stringify({ messages: recent, session_id: rpActiveSessionId }),
     });
     const j = await r.json();
     if (!j.success) {

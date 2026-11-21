@@ -10,6 +10,7 @@ ComfyUI API flow:
 """
 import asyncio
 import json
+import re
 import time
 import uuid
 from pathlib import Path
@@ -20,6 +21,7 @@ from fastapi.responses import JSONResponse
 from openai import AsyncOpenAI
 
 import db
+import engine
 from engine import _now_iso
 
 router = APIRouter()
@@ -226,50 +228,157 @@ async def generate_image(prompt_text: str, negative_prompt: str = "", seed: int 
 
 # ─── Auto image prompt generation (Phase 3) ────────────────────────
 
-AUTO_IMG_SYSTEM = """You are a scene image prompt generator for a roleplay/character chat application.
-Your job: read the recent conversation and decide if this moment is worth illustrating.
+AUTO_IMG_SYSTEM = """You are the scene captioner for a roleplay chat app feeding MOSS-Image — a text-to-image model trained on captions of FINISHED IMAGES, not instructions, and built for long descriptive prompts.
 
-If the scene is visually interesting (a dramatic moment, new location, emotional beat, character interaction with visual cues), generate a concise image generation prompt.
+Read the conversation and character context, then answer with one of two things:
+- SKIP — the exchange is mundane (greetings, short talk, no visual change, OOC chatter).
+- ONE English prose caption of the finished frame.
 
-If the conversation is mundane (greetings, short exchanges with no visual change, OOC chatter), return SKIP.
-
-Rules for the image prompt:
-- Write a single comma-separated prompt, no sentences, no explanations.
-- Describe: subjects, appearance, clothing, pose, expression, setting, lighting, mood, art style.
-- Prefer "anime style" or "digital painting" as art style unless the scene is photorealistic.
-- Keep it under 80 words.
-- Do NOT include character speech or dialogue.
-- Focus on the visual moment, not the history.
-
-Respond in EXACTLY one of these two formats:
-1. On the first line: PROMPT: <your image prompt here>
-2. On the first line: SKIP"""
+Writing the caption:
+1. Faithfulness. Every subject, action, clothing item and count comes from the chat. Never contradict the chat; invent no props, characters or plot.
+2. Location, in precedence: what the chat states; if the chat only implies it, make the implication explicit; if the chat is silent, the location from the character's scenario; if that is silent too, stay generic ("a simple interior"). Never invent specifics you were not given.
+3. Visuals only — what a camera would see. No dialogue, speech, sounds, thoughts or backstory: spoken lines are never rendered as text. Visible writing the chat mentions (a sign, a note) is quoted verbatim in double quotes with its placement.
+4. Appearance comes from the character context below (face, hair, outfit) — that is how these people look in every image. The chat decides what they do and where they are.
+5. Structure: subject first with its action and position; then setting with word positions (left, right, foreground, background); then camera, medium, light, materials, palette, mood. One subject per clause, concrete verbs, simple prepositions. Plain prose — no lists, no markdown, no quality words ("masterpiece, 8k, ultra-detailed" are banned).
+6. Camera: keep any vantage the chat states (POV, first-person, over-the-shoulder, low angle, "seen from behind") and compose around it; otherwise eye level. Never re-frame mid-caption.
+7. Style budget: use each given phrase exactly once — one medium, one lighting, one mood. If none is given, choose fitting ones yourself.
+8. People with dignity: clothing covers anatomy, no nudity or body-measurement detail; minors clothed and non-sexualized. An unsafe request gets one short refusal line and no caption.
+9. No living artists — translate a named artist into observable traits instead.
+10. Output: one paragraph, target {words} words, hard ceiling 512 tokens. Reply with the caption alone — or the single word SKIP. No preamble, no wrapping quotes, no explanation."""
 
 
-async def auto_generate_image_prompt(messages: list[dict], send_fn=None, force: bool = False) -> str | None:
+def auto_img_system(word_target=None) -> str:
+    """The captioner's system prompt; {words} filled from config."""
+    if word_target is None:
+        word_target = db.IMAGEGEN_CAPTION_WORDS
+    return AUTO_IMG_SYSTEM.replace("{words}", str(word_target))
+
+
+def _clip(text: str, limit: int) -> str:
+    text = (text or "").strip()
+    if len(text) <= limit:
+        return text
+    return text[:limit].rsplit(" ", 1)[0] + "\u2026"
+
+
+def caption_session_context(session_id) -> tuple:
+    """(characters_block, persona_block) for the captioner, from the session.
+
+    Characters carry the card's description (appearance) and scenario —
+    the scenario is background knowledge; the chat overrides it when the
+    story has moved on.
     """
-    Ask the auto-gen LLM whether the current scene is worth illustrating.
-    Returns a prompt string if yes, or None if the LLM says SKIP or on error.
-    `messages` is a list of {"role": ..., "content": ...} dicts (recent conversation).
-    When `force=True`, bypass the enabled check (for manual on-demand use).
+    characters_block, persona_block = "", ""
+    try:
+        sess = db.db_rp_get_session(session_id) if session_id else None
+    except Exception:
+        sess = None
+    if sess:
+        lines = []
+        for c in (sess.get("characters") or []):
+            fn = c.get("card_filename") or ""
+            try:
+                card = engine.load_card(fn)
+            except Exception:
+                continue
+            d = card.get("data", card)
+            name = engine.resolve_char_name(card)
+            line = "- " + name
+            desc = _clip(str(d.get("description") or ""), 800)
+            scen = _clip(str(d.get("scenario") or ""), 400)
+            if desc:
+                line += ": " + desc
+            if scen:
+                line += " | scenario: " + scen
+            lines.append(line)
+        characters_block = "\n".join(lines)
+        pfn = sess.get("persona_filename")
+        if pfn:
+            try:
+                persona = json.loads((db.PERSONAS_DIR / pfn).read_text(encoding="utf-8"))
+                pdesc = _clip(str(persona.get("description") or ""), 500)
+                persona_block = f"- {persona.get('name', 'Unknown')}" + (f": {pdesc}" if pdesc else "")
+            except Exception:
+                persona_block = ""
+    return characters_block, persona_block
+
+
+def build_caption_messages(messages, session_id=None, characters_block=None,
+                           persona_block=None, style=None, word_target=None,
+                           window=None) -> list:
+    """Assemble [system, user] for the scene captioner.
+
+    `window` (config caption_window) trims the chat slice; `style` maps to
+    {"medium", "lighting", "mood"} and each non-empty phrase is handed over
+    as a use-once budget. Explicit blocks skip the session lookup (tests).
+    """
+    if window is None:
+        window = db.IMAGEGEN_CAPTION_WINDOW
+    if style is None:
+        style = {"medium": db.IMAGEGEN_STYLE_MEDIUM,
+                 "lighting": db.IMAGEGEN_STYLE_LIGHTING,
+                 "mood": db.IMAGEGEN_STYLE_MOOD}
+    if characters_block is None and persona_block is None and session_id:
+        characters_block, persona_block = caption_session_context(session_id)
+    window = max(1, int(window))
+    convo_lines = []
+    for m in list(messages)[-window:]:
+        label = m.get("speaker") or m.get("role") or "unknown"
+        convo_lines.append(f"[{label}]: {m.get('content', '')}")
+    parts = ["Recent conversation (the scene to illustrate):",
+             "\n".join(convo_lines) or "(none)"]
+    if characters_block:
+        parts += ["",
+                  "Characters in the scene — appearance comes from their cards; this is how they look:",
+                  characters_block]
+    if persona_block:
+        parts += ["", "The persona you play (also visible if the scene shows it):", persona_block]
+    budget = [f'{k}="{str(v).strip()}"' for k, v in
+              (("medium", style.get("medium")), ("lighting", style.get("lighting")),
+               ("mood", style.get("mood"))) if v and str(v).strip()]
+    if budget:
+        parts += ["", "Style budget — use each exactly once: " + "; ".join(budget)]
+    parts += ["", "Write the MOSS-Image caption, or SKIP."]
+    return [{"role": "system", "content": auto_img_system(word_target)},
+            {"role": "user", "content": "\n".join(parts)}]
+
+
+def parse_caption_response(raw: str | None):
+    """Caption string, or None for SKIP.
+
+    Reasoning wrappers are stripped first — the configured captioner is a
+    DeepSeek-R1 variant whose thinking must not leak into the prompt.
+    The SKIP decision reads the FIRST LINE only: a caption containing a
+    word like "skipping" must never be mistaken for it (the old parser's
+    whole-text `if "SKIP" in raw` check did exactly that).
+    """
+    text = (raw or "").strip()
+    text = re.sub(r"\$\$.*?\$\$", "", text, flags=re.S)      # DeepSeek-R1 thinking
+    text = re.sub(r"<thinking>.*?</thinking>", "", text, flags=re.S | re.I)
+    text = text.replace("$$", "")
+    text = text.strip()
+    first = text.split("\n", 1)[0].strip()
+    if re.match(r"SKIP(?:$|[.:!,;\s-])", first, re.I):
+        return None
+    if text.upper().startswith("PROMPT:"):
+        text = text[7:].strip()
+    return text or None
+
+
+async def auto_generate_image_prompt(messages: list[dict], send_fn=None, force: bool = False,
+                                     session_id=None, raise_errors: bool = False) -> str | None:
+    """
+    Ask the captioner LLM for a MOSS-Image scene caption (or SKIP).
+    Returns the caption, or None on SKIP. `session_id` adds the session's
+    character cards (appearance/scenario) and persona as context.
+    When `force=True`, bypasses the enabled check (manual on-demand use).
+    raise_errors=True re-raises LLM failures instead of returning None —
+    a dead endpoint must not be reported to the user as "the LLM said SKIP".
     """
     if not force and not db.IMAGEGEN_AUTO_ENABLED:
         return None
 
-    # Build conversation snippet (last few messages)
-    convo_lines = []
-    for m in messages[-8:]:
-        role = m.get("role", "unknown")
-        speaker = m.get("speaker", "")
-        content = m.get("content", "")
-        label = speaker or role
-        convo_lines.append(f"[{label}]: {content}")
-    convo_text = "\n".join(convo_lines)
-
-    llm_messages = [
-        {"role": "system", "content": AUTO_IMG_SYSTEM},
-        {"role": "user", "content": f"Recent conversation:\n{convo_text}\n\nDecide: is this moment worth illustrating?"},
-    ]
+    llm_messages = build_caption_messages(messages, session_id=session_id)
 
     if send_fn:
         await send_fn({
@@ -299,16 +408,8 @@ async def auto_generate_image_prompt(messages: list[dict], send_fn=None, force: 
                 "finish_reason": resp.choices[0].finish_reason, "timestamp": _now_iso(),
             })
 
-        # Parse response
-        first_line = raw.split("\n")[0].strip()
-        if first_line.upper().startswith("SKIP"):
-            return None
-        if first_line.upper().startswith("PROMPT:"):
-            return first_line[len("PROMPT:"):].strip()
-        # Fallback: if the LLM didn't follow format, treat the whole thing as a prompt if not SKIP
-        if "SKIP" in raw.upper():
-            return None
-        return raw.strip() or None
+        # First-line SKIP decision + reasoning-wrapper stripping
+        return parse_caption_response(raw)
 
     except Exception as e:
         if send_fn:
@@ -316,6 +417,8 @@ async def auto_generate_image_prompt(messages: list[dict], send_fn=None, force: 
                 await send_fn({"type": "error", "message": f"Auto image prompt error: {e}"})
             except Exception:
                 pass
+        if raise_errors:
+            raise
         return None
 
 
@@ -341,7 +444,7 @@ async def maybe_auto_generate_image(session_id: int, messages: list[dict], send_
         return
 
     # Ask LLM for a prompt
-    prompt = await auto_generate_image_prompt(messages, send_fn=send_fn)
+    prompt = await auto_generate_image_prompt(messages, send_fn=send_fn, session_id=session_id)
     if not prompt:
         return
 
@@ -411,7 +514,15 @@ async def api_auto_image_prompt(request: Request):
     messages = body.get("messages", [])
     if not messages:
         return JSONResponse({"success": False, "error": "No messages provided"}, status_code=400)
-    prompt = await auto_generate_image_prompt(messages, force=True)
+    session_id = body.get("session_id")
+    try:
+        prompt = await auto_generate_image_prompt(messages, force=True,
+                                                  session_id=session_id,
+                                                  raise_errors=True)
+    except Exception as e:
+        return JSONResponse({"success": False,
+                             "error": f"Captioner LLM failed: {e}"},
+                            status_code=502)
     if prompt is None:
         return JSONResponse({"success": True, "prompt": None, "skipped": True})
     return JSONResponse({"success": True, "prompt": prompt, "skipped": False})
