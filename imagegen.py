@@ -319,7 +319,7 @@ async def auto_generate_image_prompt(messages: list[dict], send_fn=None, force: 
         return None
 
 
-async def maybe_auto_generate_image(session_id: int, messages: list[dict], send_fn, mode: str = "rp",
+async def maybe_auto_generate_image(session_id: int, messages: list[dict], send_fn,
                                      image_add_fn=None) -> None:
     """
     Check if auto image generation should trigger (based on message count interval),
@@ -329,7 +329,6 @@ async def maybe_auto_generate_image(session_id: int, messages: list[dict], send_
         session_id: DB session ID
         messages: recent messages from the session (list of dicts with role/content)
         send_fn: async callable for sending WS events
-        mode: "rp" or "school"
         image_add_fn: async callable(image_path: str) to insert the generated image
                       into the session's DB + send the WS message. If None, uses a default.
     """
@@ -369,7 +368,7 @@ async def maybe_auto_generate_image(session_id: int, messages: list[dict], send_
 async def api_generate_image(request: Request):
     """
     Generate a scene image via ComfyUI.
-    Request body: {"prompt": "...", "negative_prompt": "...", "session_id": N, "mode": "rp"|"school"}
+    Request body: {"prompt": "...", "negative_prompt": "...", "session_id": N}
     Returns: {"success": true, "image_path": "..."} or {"success": false, "error": "..."}
     """
     try:

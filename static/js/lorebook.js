@@ -1,15 +1,11 @@
-// Character School — lorebook.js
+// KedaiKopi — lorebook.js
 // Lorebook (World Info) manager, import/export.
 
 // ─── Lorebook Manager ─────────────────────────────────────────────
 let _lorebookList = [];
 let _currentLorebook = null;     // {filename, name, description, entries:{}}
-let _lorebookCtx = 'rp';         // 'rp' or 'school'
 
-async function openLorebookManager(ctx) {
-  _lorebookCtx = ctx || 'rp';
-  const lbl = document.getElementById('lorebookCtxLabel');
-  if (lbl) lbl.textContent = _lorebookCtx === 'school' ? 'School Mode' : 'RP Mode';
+async function openLorebookManager() {
   document.getElementById('lorebookOverlay').style.display = 'flex';
   await loadLorebookList();
 }
@@ -37,7 +33,7 @@ function renderLorebookList() {
   }
   let html = '';
   for (const lb of _lorebookList) {
-    const isActive = (_lorebookCtx === 'rp' ? rpLorebooks : schoolLorebooks).includes(lb.filename);
+    const isActive = rpLorebooks.includes(lb.filename);
     html += `<div class="lb-list-item ${_currentLorebook && _currentLorebook._filename === lb.filename ? 'active' : ''}" onclick="selectLorebook('${lb.filename}')" style="padding:8px 10px;cursor:pointer;border-bottom:1px solid var(--border);font-size:13px;display:flex;align-items:center;gap:6px">`;
     html += `<input type="checkbox" ${isActive ? 'checked' : ''} onclick="event.stopPropagation();toggleLorebookActive('${lb.filename}', this.checked)" style="accent-color:var(--accent)">`;
     html += `<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(lb.name)}</span>`;
@@ -86,17 +82,10 @@ async function deleteCurrentLorebook() {
     await fetch('/api/lorebooks/' + encodeURIComponent(fn), {method: 'DELETE'});
     // Remove from active lists
     rpLorebooks = rpLorebooks.filter(f => f !== fn);
-    schoolLorebooks = schoolLorebooks.filter(f => f !== fn);
     if (rpActiveSessionId) {
       await fetch('/api/rp/sessions/' + rpActiveSessionId + '/lorebooks', {
         method: 'PUT', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({lorebooks: rpLorebooks}),
-      });
-    }
-    if (schoolActiveSessionId) {
-      await fetch('/api/school/sessions/' + schoolActiveSessionId + '/lorebooks', {
-        method: 'PUT', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({lorebooks: schoolLorebooks}),
       });
     }
     _currentLorebook = null;
@@ -282,7 +271,7 @@ async function exportLorebook() {
 }
 
 async function toggleLorebookActive(filename, checked) {
-  const arr = _lorebookCtx === 'rp' ? rpLorebooks : schoolLorebooks;
+  const arr = rpLorebooks;
   if (checked) {
     if (!arr.includes(filename)) arr.push(filename);
   } else {
@@ -290,11 +279,9 @@ async function toggleLorebookActive(filename, checked) {
     if (idx >= 0) arr.splice(idx, 1);
   }
   // Persist to session
-  const sessionId = _lorebookCtx === 'rp' ? rpActiveSessionId : schoolActiveSessionId;
+  const sessionId = rpActiveSessionId;
   if (!sessionId) return;
-  const endpoint = _lorebookCtx === 'rp'
-    ? '/api/rp/sessions/' + sessionId + '/lorebooks'
-    : '/api/school/sessions/' + sessionId + '/lorebooks';
+  const endpoint = '/api/rp/sessions/' + sessionId + '/lorebooks';
   try {
     await fetch(endpoint, {
       method: 'PUT',
@@ -305,6 +292,6 @@ async function toggleLorebookActive(filename, checked) {
     console.error('Failed to update session lorebooks', e);
   }
   renderLorebookList();
-  if (_lorebookCtx === 'rp') renderRPSceneBar();
+  renderRPSceneBar();
 }
 

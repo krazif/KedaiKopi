@@ -1,5 +1,5 @@
 """
-Character School — Lorebook (World Info) module.
+KedaiKopi — Lorebook (World Info) module.
 SillyTavern-compatible lorebook storage and keyword-triggered injection.
 
 Lorebooks are stored as JSON files in the lorebooks directory.
@@ -282,9 +282,9 @@ async def inject_lorebook(llm_messages: list[dict], session: dict,
                           scan_depth: int = 10) -> str:
     """Load a session's attached lorebooks, inject active entries, notify.
 
-    One call replaces the six hand-rolled injection blocks in school.py and
-    rp.py. `send` is the async JSON sender for the console event
-    (ws.send_json / _safe_send). Returns the injected text ('' if none).
+    This is the single injection path: it replaced six hand-rolled blocks
+    in the parent codebase. `send` is the async JSON sender for the console
+    event (ws.send_json / _safe_send). Returns the injected text ('' if none).
     """
     filenames = []
     raw = (session or {}).get("lorebooks")

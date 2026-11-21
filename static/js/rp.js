@@ -1,4 +1,4 @@
-// Character School — rp.js
+// KedaiKopi — rp.js
 // RP state, session setup, WebSocket, UI rendering, author's note, response style.
 
 // ─── RP State & Logic ──────────────────────────
@@ -11,17 +11,12 @@ let rpPov = null;
 let rpInnerMonologue = false;
 let rpAutoContinue = true;  // auto-continue truncated responses
 let rpLorebooks = []; // active lorebook filenames for RP session
-let schoolLorebooks = []; // active lorebook filenames for school session
 const rpStyleLabels = {short:'Short', moderate:'Moderate', long:'Long', flexible:'Flexible'};
 const rpStyleOrder = ['short','moderate','long','flexible'];
 const rpStyleTokens = {short:'~150 words', moderate:'~150-300 words', long:'300+ words', flexible:'dynamic'};
 const povLabels = {null:'Auto', 'first':'1st', 'second':'2nd', 'third':'3rd'};
 const povOrder = ['first','second','third'];
 const povTitles = {null:'Default (inherit from card)', 'first':'First person (I/me)', 'second':'Second person (you)', 'third':'Third person (she/he/they)'};
-let schoolResponseStyle = 'moderate';
-let schoolPov = null;
-let schoolInnerMonologue = false;
-let schoolAutoContinue = true;  // auto-continue truncated responses
 let rpStackConfig = null;
 let rpSystemPrompt = '';  // system prompt text from server for token estimation
 let stackDragSrc = null;
@@ -30,28 +25,9 @@ let rpCardsList = [];       // cached card list for picker
 let rpSetupChars = [];      // selected filenames in setup
 let rpSetupStyle = 'moderate';
 let rpConsoleEvents = 0;
-let rpCurrentMode = 'school';
 
 // Character color palette for chat labels
 const RP_CHAR_COLORS = ['#58a6ff', '#3fb950', '#bc8cff', '#db6d28'];
-
-function switchMode(mode) {
-  rpCurrentMode = mode;
-  document.body.classList.toggle('rp-mode', mode === 'rp');
-  document.getElementById('tabSchool').classList.toggle('active', mode === 'school');
-  document.getElementById('tabRP').classList.toggle('active', mode === 'rp');
-   // Reset token counter when switching modes
-   // (token counter moved to prompt stack builder footer)
-   if (mode === 'rp') {
-    loadRPSessions();
-    // Populate persona select in setup
-    populateRPPersonaSelect();
-    if (rpCharacters.length) renderRPSceneBar();
-  } else if (mode === 'school') {
-    loadSchoolSessions();
-    if (schoolActiveSessionId) updateSchoolStyleButton();
-  }
-}
 
 // ─── RP Session Setup ───────────────────────────
 async function openRPSetup() {
@@ -307,7 +283,7 @@ function handleRPMessage(data) {
       renderVirtualMessages('rpChatMessages', rpMessages, rpVisibleCount.value);
     }
   } else if (data.type === 'character_delta') {
-    handleStreamDelta('rp', data);
+    handleStreamDelta(data);
   } else if (data.type === 'character_typing') {
     showRPTyping(data.character_name);
   } else if (data.type === 'character_typing_stopped') {
@@ -344,12 +320,12 @@ function handleRPMessage(data) {
    } else if (data.type === 'stack_updated') {
     rpStackConfig = data.stack_config;
     if (rpStackConfig) rpStackConfig._systemPromptText = rpSystemPrompt;
-    if (activeStackMode === 'rp') activeStackConfig = rpStackConfig;
+    activeStackConfig = rpStackConfig;
   } else if (data.type === 'block_summarizing') {
     // Button already shows "Summarizing…" from JS; auto triggers also send this
   } else if (data.type === 'block_summary_updated') {
     if (data.stack_config) rpStackConfig = data.stack_config;
-    if (activeStackMode === 'rp') activeStackConfig = rpStackConfig;
+    activeStackConfig = rpStackConfig;
     if (rpStackConfig) rpStackConfig._systemPromptText = rpSystemPrompt;
     summarizingBlockIdx = null;
     renderStackBlocks();
@@ -361,7 +337,7 @@ function handleRPMessage(data) {
   } else if (data.type === 'chunk_added') {
     // Auto-summary created a new summary_chunk
     if (data.stack_config) rpStackConfig = data.stack_config;
-    if (activeStackMode === 'rp') activeStackConfig = rpStackConfig;
+    activeStackConfig = rpStackConfig;
     if (rpStackConfig) rpStackConfig._systemPromptText = rpSystemPrompt;
     summarizingBlockIdx = null;
     renderStackBlocks();
@@ -455,7 +431,7 @@ function renderRPSceneBar() {
   html += `<div class="rp-toggle-btn" onclick="openLorebookManager()" title="Manage lorebooks">📚 Lorebooks</div>`;
 
   // Generate Scene button (ComfyUI)
-  html += `<div class="rp-toggle-btn" onclick="openGenerateSceneModal('rp')" title="Generate scene image via ComfyUI">🎨 Generate Scene</div>`;
+  html += `<div class="rp-toggle-btn" onclick="openGenerateSceneModal()" title="Generate scene image via ComfyUI">🎨 Generate Scene</div>`;
 
   // Active lorebook indicator
   if (rpLorebooks && rpLorebooks.length > 0) {
@@ -522,40 +498,6 @@ function showRPTyping(characterName) {
 function hideRPTyping() {
   const existing = document.getElementById('rpTypingIndicator');
   if (existing) existing.remove();
-}
-
-// ── School mode typing indicators ──
-function showSchoolTyping(kind, characterName) {
-  hideSchoolTyping();
-  if (kind === 'character') {
-    // Show in chat area
-    const container = document.getElementById('chatMessages');
-    const div = document.createElement('div');
-    div.className = 'rp-typing';
-    div.id = 'schoolCharTyping';
-    const name = characterName ? escapeHtml(characterName) : 'Character';
-    div.innerHTML = `${name} is responding <span class="dots"><span>●</span><span>●</span><span>●</span></span>`;
-    container.appendChild(div);
-    container.scrollTop = container.scrollHeight;
-  } else if (kind === 'analyzer') {
-    // Show in analysis panel
-    const container = document.getElementById('analysisPanel');
-    // Keep the empty placeholder text if present, but replace with typing indicator
-    const div = document.createElement('div');
-    div.className = 'rp-typing';
-    div.id = 'schoolAnalyzerTyping';
-    div.style.margin = '10px 14px';
-    div.innerHTML = `Analyzer is thinking <span class="dots"><span>●</span><span>●</span><span>●</span></span>`;
-    container.appendChild(div);
-    container.scrollTop = container.scrollHeight;
-  }
-}
-
-function hideSchoolTyping() {
-  const c = document.getElementById('schoolCharTyping');
-  if (c) c.remove();
-  const a = document.getElementById('schoolAnalyzerTyping');
-  if (a) a.remove();
 }
 
 function showRPSummaryBar(summary, count) {
@@ -672,18 +614,6 @@ function updateRPInputState() {
 }
 
 // ── Author's Note toggle + key handlers ──
-function toggleSchoolAuthorNote() {
-  const bar = document.getElementById('schoolAuthorNoteBar');
-  const arrow = document.getElementById('schoolAuthorNoteArrow');
-  if (!bar) return;
-  const expanded = bar.classList.toggle('expanded');
-  arrow.textContent = expanded ? '▾' : '▸';
-  if (expanded) {
-    const field = document.getElementById('schoolAuthorNoteInput');
-    if (field && !field.disabled) field.focus();
-  }
-}
-
 function toggleRPAuthorNote() {
   const bar = document.getElementById('rpAuthorNoteBar');
   const arrow = document.getElementById('rpAuthorNoteArrow');
@@ -699,8 +629,7 @@ function toggleRPAuthorNote() {
 function handleAuthorNoteKey(e, mode) {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
-    if (mode === 'school') sendMessage();
-    else if (mode === 'rp') sendRPMessage();
+    if (mode === 'rp') sendRPMessage();
   }
 }
 
@@ -766,64 +695,3 @@ function rpUpdateSetting(key, value) {
     rpWS.send(JSON.stringify(update));
   }
 }
-
-// ─── School Response Style ──────────────────────
-function updateSchoolStyleButton() {
-  // Populate and update response style dropdown
-  const styleSel = document.getElementById('schoolStyleSelect');
-  if (styleSel) {
-    if (styleSel.options.length === 0) {
-      rpStyleOrder.forEach(st => {
-        const opt = document.createElement('option');
-        opt.value = st;
-        opt.textContent = `${rpStyleLabels[st]} (${rpStyleTokens[st]})`;
-        styleSel.appendChild(opt);
-      });
-    }
-    styleSel.value = schoolResponseStyle || 'moderate';
-  }
-  // Update POV dropdown
-  const povSelect = document.getElementById('schoolPovSelect');
-  if (povSelect) {
-    // Populate options if empty
-    if (povSelect.options.length === 0) {
-      const autoOpt = document.createElement('option');
-      autoOpt.value = '';
-      autoOpt.textContent = povLabels[null];
-      povSelect.appendChild(autoOpt);
-      povOrder.forEach(pv => {
-        const opt = document.createElement('option');
-        opt.value = pv;
-        opt.textContent = povLabels[pv];
-        povSelect.appendChild(opt);
-      });
-    }
-    povSelect.value = schoolPov || '';
-  }
-  // Update inner monologue toggle
-  const imBtn = document.getElementById('schoolImToggle');
-  if (imBtn) {
-    imBtn.textContent = `💭 ${schoolInnerMonologue ? 'ON' : 'OFF'}`;
-    imBtn.classList.toggle('active', schoolInnerMonologue);
-  }
-  // Update auto-continue toggle
-  const acBtn = document.getElementById('schoolAcToggle');
-  if (acBtn) {
-    acBtn.textContent = `🔄 ${schoolAutoContinue ? 'ON' : 'OFF'}`;
-    acBtn.classList.toggle('active', schoolAutoContinue);
-  }
-}
-
-function schoolUpdateSetting(key, value) {
-  if (key === 'pov') schoolPov = value || null;
-  else if (key === 'inner_monologue') schoolInnerMonologue = !!value;
-  else if (key === 'auto_continue') schoolAutoContinue = !!value;
-  else if (key === 'response_style') schoolResponseStyle = value;
-  updateSchoolStyleButton();
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    const update = {type: 'update_settings'};
-    update[key] = value;
-    ws.send(JSON.stringify(update));
-  }
-}
-

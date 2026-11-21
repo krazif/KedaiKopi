@@ -1,5 +1,5 @@
 """
-Character School — backward-compat shim.
+KedaiKopi — backward-compat shim.
 
 All config lives in config.py; all database logic lives in database.py.
 This module re-exports both so `import db` + `db.X` keeps working.
@@ -35,24 +35,12 @@ _CONFIG_NAMES = [
 _DATABASE_NAMES = [
     "DB_PATH", "init_db", "DEFAULT_STACK_CONFIG", "get_stack_config",
     "build_llm_messages_from_stack",
-    "db_create_session", "db_add_message", "db_get_llm_messages",
-    "db_get_assistant_messages", "db_delete_message", "db_clear_messages",
-    "db_get_session",
     "db_rp_create_session", "db_rp_add_message", "db_rp_get_messages",
     "db_rp_get_session", "db_rp_save_console_events", "db_rp_list_sessions",
     "db_rp_delete_session", "db_rp_delete_message", "db_rp_delete_single_message",
     "db_rp_add_swipe", "db_rp_switch_swipe", "db_rp_truncate_after",
     "db_rp_count_messages", "db_rp_update_settings", "db_rp_add_character",
     "db_rp_remove_character", "db_rp_fork_session", "db_rp_set_persona",
-    "db_school_create_session", "db_school_update_message_analysis",
-    "db_school_add_message", "db_school_get_messages", "db_school_get_session",
-    "db_school_list_sessions", "db_school_delete_session",
-    "db_school_delete_message", "db_school_delete_single_message",
-    "db_school_add_swipe", "db_school_switch_swipe", "db_school_truncate_after",
-    "db_school_update_session_meta", "db_school_update_settings",
-    "db_school_save_console_events", "db_school_count_messages",
-    "db_school_get_assistant_messages", "db_school_fork_session",
-    "db_school_set_persona", "db_school_to_rp",
 ]
 
 

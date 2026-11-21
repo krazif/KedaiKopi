@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
-<title>Character School</title>
+<title>KedaiKopi</title>
 <style>
 :root {
   --bg: #0d1117; --surface: #161b22; --surface2: #21262d; --border: #30363d;
@@ -262,15 +262,9 @@ header .status.connected { color:var(--green); }
 ::-webkit-scrollbar-thumb:hover { background:var(--text-dim); }
 
 /* ─── RP Mode ─────────────────────────────────────────────────── */
-.mode-tabs { display:flex; gap:2px; }
-.mode-tab { padding:4px 14px; cursor:pointer; font-size:13px; color:var(--text-dim); border-radius:6px; transition:all 0.15s; }
-.mode-tab.active { background:var(--surface2); color:var(--accent); }
-.mode-tab:hover { color:var(--text); }
-
 /* RP body hidden by default */
   body:not(.rp-mode) .rp-only { display:none; }
   body.rp-mode .rp-only { display:flex; }
-body.rp-mode .school-only { display:none; }
 
 /* RP Left Panel: Session Manager */
 .rp-left-panel { width:240px; background:var(--surface); border-right:1px solid var(--border); display:flex; flex-direction:column; }
@@ -288,18 +282,6 @@ body.rp-mode .school-only { display:none; }
 .rp-session-item .fork-btn { font-size:12px; color:var(--text-dim); cursor:pointer; float:right; margin-right:4px; }
  .rp-session-item .fork-btn:hover { color:var(--green); }
 
-/* School Sessions */
-.school-session-item { padding:8px 14px; cursor:pointer; transition:background 0.15s; }
-.school-session-item:hover { background:var(--surface2); }
-.school-session-item.active { background:var(--surface2); border-left:3px solid var(--blue); }
-.school-session-item .title { font-weight:500; font-size:12px; }
-.school-session-item .meta { font-size:10px; color:var(--text-dim); margin-top:2px; }
-.school-session-item .del-btn { font-size:11px; color:var(--text-dim); cursor:pointer; float:right; }
-.school-session-item .del-btn:hover { color:var(--red); }
-.school-session-item .fork-btn { font-size:12px; color:var(--text-dim); cursor:pointer; float:right; margin-right:4px; }
-.school-session-item .fork-btn:hover { color:var(--green); }
-.school-session-item .move-btn { font-size:12px; color:var(--text-dim); cursor:pointer; float:right; margin-right:4px; }
-.school-session-item .move-btn:hover { color:var(--blue); }
 
 
 /* RP Center Panel */
@@ -567,15 +549,11 @@ body.rp-mode .school-only { display:none; }
 </style>
 
 </head>
-<body>
+<body class="rp-mode">
 
 <header>
-  <h1>🎭 Character School</h1>
-  <span class="subtitle">Character Card QA</span>
-  <div class="mode-tabs" style="margin-left:16px;">
-    <div class="mode-tab active" id="tabSchool" onclick="switchMode('school')">🏫 School</div>
-    <div class="mode-tab" id="tabRP" onclick="switchMode('rp')">🎭 RP</div>
-  </div>
+  <h1>☕ KedaiKopi</h1>
+  <span class="subtitle">Local roleplay client</span>
   <span class="spacer"></span>
     <button class="btn-reset" style="padding:4px 10px;font-size:14px" onclick="toggleBgPanel()" title="Chat Backgrounds">🖼️</button>
     <button class="btn-reset" style="padding:4px 10px;font-size:14px" onclick="openSettings()" title="Settings">⚙️</button>
@@ -583,29 +561,6 @@ body.rp-mode .school-only { display:none; }
 </header>
 
 <div class="main">
-  <!-- School Mode: Left Panel -->
-  <div class="left-panel school-only">
-    <!-- Sessions section -->
-    <div class="school-sessions-header" style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border);cursor:pointer" onclick="toggleSchoolSessions()">
-      <span style="font-size:13px;font-weight:600;color:var(--text-dim)">Sessions</span>
-      <span style="flex:1"></span>
-      <button id="btnNewSchoolSession" onclick="event.stopPropagation(); createSchoolSession()" style="font-size:11px;padding:3px 8px;background:var(--accent);border:none;border-radius:4px;color:#fff;cursor:pointer;display:none" title="Create a new session with the selected character">+ New</button>
-      <span class="chevron" id="schoolSessionsChevron">▼</span>
-    </div>
-    <div class="school-sessions-list" id="schoolSessionsList" style="max-height:200px;overflow-y:auto;border-bottom:1px solid var(--border)"></div>
-    <!-- Card list section -->
-    <div class="card-list-header" style="display:flex;align-items:center;gap:8px">
-      <span>Characters</span>
-      <span style="flex:1"></span>
-      <button onclick="document.getElementById('cardUploadInput').click()" style="font-size:11px;padding:3px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);cursor:pointer" title="Upload character card (JSON or PNG)">↑ Upload</button>
-      <button onclick="openGenerateModal()" style="font-size:11px;padding:3px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);cursor:pointer" title="Generate a new character card with AI">✨ Generate</button>
-      <input type="file" id="cardUploadInput" accept=".json,application/json,.png,image/png" style="display:none" onchange="uploadCard(event)" />
-    </div>
-    <div class="card-list" id="cardList">
-      <div class="loading">Loading...</div>
-    </div>
-  </div>
-
   <!-- RP Mode: Left Panel (Session Manager) -->
   <div class="rp-left-panel rp-only">
     <div class="rp-sessions-header">
@@ -616,69 +571,16 @@ body.rp-mode .school-only { display:none; }
     <div class="rp-sessions-list" id="rpSessionsList">
       <div class="loading" style="padding:20px;text-align:center;color:var(--text-dim)">No sessions yet. Click "+ New" to start.</div>
     </div>
-  </div>
-
-  <!-- School Mode: Center Panel -->
-  <div class="center-panel school-only">
-    <div class="chat-header">
-      <span class="char-name" id="charName">Select a character</span>
-      <div class="persona-selector">
-        <span style="font-size:11px;color:var(--text-dim)">Persona:</span>
-        <select id="personaSelect" onchange="onPersonaChange()" disabled>
-          <option value="">None (raw you)</option>
-        </select>
-      </div>
-      <span class="spacer"></span>
-      <button class="btn-reset" id="btnPersonaEditor" onclick="openPersonaEditor()" disabled>Persona+</button>
-      <button class="btn-reset" id="btnReset" onclick="resetChat()" disabled>Reset</button>
-      <button class="btn-report" id="btnReport" onclick="getReport()" disabled>Report</button>
-      <button class="btn-reset" id="btnEditor" onclick="openEditor()" disabled>Edit Card</button>
-      <button class="btn-reset" id="btnSchoolStack" onclick="openSchoolStackBuilder()" disabled>📚 Stack</button>
-      <button class="btn-reset" id="btnSchoolLore" onclick="openLorebookManager('school')" disabled>📖 Lorebooks</button>
-      <button class="btn-reset" id="btnSchoolGenScene" onclick="openGenerateSceneModal('school')" disabled>🎨 Generate Scene</button>
-      <div class="style-toggle-wrap" id="schoolStyleToggleWrap" style="display:none">
-        <select class="rp-pov-select" id="schoolStyleSelect" onchange="schoolUpdateSetting('response_style', this.value)" title="Response length"></select>
-        <select id="schoolPovSelect" class="rp-pov-select" onchange="schoolUpdateSetting('pov', this.value || null)" title="Perspective"></select>
-        <div class="rp-toggle-btn" id="schoolImToggle" onclick="schoolUpdateSetting('inner_monologue', !schoolInnerMonologue)" title="Inner monologue">💭 OFF</div>
-        <div class="rp-toggle-btn active" id="schoolAcToggle" onclick="schoolUpdateSetting('auto_continue', !schoolAutoContinue)" title="Auto-continue truncated responses">🔄 ON</div>
-      </div>
+    <!-- Card list section -->
+    <div class="card-list-header" style="display:flex;align-items:center;gap:8px">
+      <span>Characters</span>
+      <span style="flex:1"></span>
+      <button onclick="document.getElementById('cardUploadInput').click()" style="font-size:11px;padding:3px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);cursor:pointer" title="Upload character card (JSON or PNG)">↑ Upload</button>
+      <button onclick="openGenerateModal()" style="font-size:11px;padding:3px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);cursor:pointer" title="Generate a new character card with AI">✨ Generate</button>
+      <input type="file" id="cardUploadInput" accept=".json,application/json,.png,image/png" style="display:none" onchange="uploadCard(event)" />
     </div>
-    <div class="chat-messages" id="chatMessages">
-      <div class="analysis-empty">Select a character from the left to start testing.<br><br>You'll chat as the counterparty. The character responds via LLM. Each response is analyzed in real-time against the card's rules.</div>
-    </div>
-    <!-- Author's Note (School) -->
-    <div class="author-note-bar" id="schoolAuthorNoteBar">
-      <div class="author-note-toggle" onclick="toggleSchoolAuthorNote()">📝 Author's Note <span id="schoolAuthorNoteArrow">▸</span></div>
-      <textarea class="author-note-field" id="schoolAuthorNoteInput" placeholder="Scene direction, character resistance, OOC notes... (appended to your message as [Author's Note: ...])" onkeydown="handleAuthorNoteKey(event, 'school')"></textarea>
-    </div>
-    <div class="chat-input">
-      <button class="btn-attach" id="schoolAttachBtn" onclick="document.getElementById('schoolImageUpload').click()" disabled title="Attach image">🖼️</button>
-      <input type="file" id="schoolImageUpload" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none" onchange="onSchoolImageSelected(event)" />
-      <div class="image-preview-wrap" id="schoolImagePreviewWrap">
-        <img class="image-preview" id="schoolImagePreview" />
-        <button class="image-preview-remove" onclick="clearSchoolImagePreview()">×</button>
-      </div>
-      <textarea id="msgInput" placeholder="Type your message... (Enter to send, Shift+Enter for newline)" disabled onkeydown="handleKey(event)"></textarea>
-      <button class="btn-send" id="btnSend" onclick="sendMessage()" disabled>Send</button>
-      <button class="btn-stop" id="btnStop" onclick="stopGeneration()" style="display:none">⏹ Stop</button>
-    </div>
-    <!-- Console -->
-    <div class="console-bar" id="consoleBar" onclick="toggleConsole()">
-      <span class="label">🖥 LLM Console</span>
-      <span class="count" id="consoleCount">0</span>
-      <span class="console-limit-wrap" onclick="event.stopPropagation()">
-        <span style="font-size:11px;color:var(--text-dim)">keep</span>
-        <input type="number" id="consoleLimitInput" min="0" step="5" value="300" style="width:42px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:11px;padding:2px 4px;text-align:center" title="Max console entries to keep (0 = unlimited)" oninput="onConsoleLimitChange(this.value)">
-      </span>
-      <span class="console-tok-est" id="consoleTokEst" style="font-size:11px;color:var(--text-dim);min-width:80px">— tok</span>
-      <span class="spacer"></span>
-      <span class="max-btn" id="consoleMaxBtn" onclick="event.stopPropagation(); toggleConsoleMax()" title="Expand to maximum">⤢</span>
-      <span class="chevron" id="consoleChevron">▲</span>
-    </div>
-    <div class="console-panel" id="consolePanel">
-      <div class="console-inner" id="consoleInner">
-        <div class="console-empty">LLM inference events will appear here. Click to expand.</div>
-      </div>
+    <div class="card-list" id="cardList">
+      <div class="loading">Loading...</div>
     </div>
   </div>
 
@@ -709,7 +611,7 @@ body.rp-mode .school-only { display:none; }
       <button class="btn-send" id="rpBtnSend" onclick="sendRPMessage()" disabled>Send</button>
       <button class="btn-stop" id="rpBtnStop" onclick="stopRPGeneration()" style="display:none">⏹ Stop</button>
     </div>
-    <!-- RP Console (shared with school console) -->
+    <!-- RP Console -->
     <div class="console-bar" id="rpConsoleBar" onclick="toggleConsole()">
       <span class="label">🖥 LLM Console</span>
       <span class="count" id="rpConsoleCount">0</span>
@@ -728,19 +630,6 @@ body.rp-mode .school-only { display:none; }
       </div>
     </div>
   </div>
-
-  <!-- School Mode: Right Panel -->
-  <div class="right-panel school-only">
-    <div class="analysis-header">📊 Character Analysis</div>
-    <div class="analysis-controls">
-      <textarea id="analysisGuidance" placeholder="Describe desired characteristics...  e.g. 'I want the character to be more shy and use more Malay fillers like kan, weh'" rows="3"></textarea>
-      <button class="btn-analyze" id="btnAnalyze" onclick="triggerAnalyze()">🔍 Analyze Character</button>
-    </div>
-    <div class="analysis-content" id="analysisPanel">
-      <div class="analysis-empty">Click "Analyze Character" to run analysis on the conversation so far.</div>
-    </div>
-  </div>
-</div>
 
 <!-- Preset Manager Overlay -->
 <div class="preset-overlay" id="presetOverlay">
@@ -806,7 +695,7 @@ body.rp-mode .school-only { display:none; }
           </div>
           <div class="settings-field" style="max-width:120px">
             <label>Port</label>
-            <input type="number" id="cfgServerPort" value="7862" />
+            <input type="number" id="cfgServerPort" value="7864" />
           </div>
         </div>
       </div>
@@ -1090,7 +979,7 @@ body.rp-mode .school-only { display:none; }
       </div>
     </div>
     <div class="settings-footer" id="settingsFooter">
-      Character School v1.0.0 © Krazif &amp; Tunas
+      KedaiKopi v1.0.0 © Razif
     </div>
   </div>
 </div>
@@ -1116,7 +1005,11 @@ body.rp-mode .school-only { display:none; }
         <div class="rp-selected-count" id="rpSelectedCount">0 selected</div>
       </div>
       <div class="rp-setup-section">
-        <label>Persona</label>
+        <label style="display:flex;align-items:center;gap:8px">
+          <span>Persona</span>
+          <span style="flex:1"></span>
+          <button onclick="openPersonaEditor()" style="font-size:11px;padding:3px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:4px;color:var(--text);cursor:pointer" title="Create or edit personas">✏️ Edit</button>
+        </label>
         <select id="rpPersonaSelect" class="rp-num-input" style="width:100%">
           <option value="">None (raw you)</option>
         </select>
@@ -1344,7 +1237,7 @@ body.rp-mode .school-only { display:none; }
 
 <script src="/static/js/core.js"></script>
 <script src="/static/js/cards.js"></script>
-<script src="/static/js/school.js"></script>
+<script src="/static/js/ui.js"></script>
 <script src="/static/js/rp.js"></script>
 <script src="/static/js/sessions.js"></script>
 <script src="/static/js/stack.js"></script>
@@ -1357,7 +1250,6 @@ body.rp-mode .school-only { display:none; }
   <div class="gen-modal" style="max-width:640px">
     <div class="gen-header">
       <h2>🎨 Generate Scene</h2>
-      <span class="sub" id="genSceneModeLabel">RP Mode</span>
       <span id="genSceneStatusDot" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#666;margin-left:4px" title="ComfyUI status"></span>
       <span style="flex:1"></span>
       <button class="btn-reset" onclick="closeGenSceneModal()">Close</button>
@@ -1417,7 +1309,6 @@ body.rp-mode .school-only { display:none; }
   <div class="gen-modal">
     <div class="gen-header">
       <h2>📖 Lorebook Manager</h2>
-      <span class="sub" id="lorebookCtxLabel">RP Mode</span>
       <span style="flex:1"></span>
       <button class="btn-reset" onclick="closeLorebookManager()">Close</button>
     </div>

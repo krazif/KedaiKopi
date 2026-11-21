@@ -1,85 +1,62 @@
-# Character School
+# KedaiKopi
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 
-A standalone web app for testing and QA-ing character cards with real-time LLM analysis. Chat with your characters, get instant feedback on rule compliance, run multi-character roleplay sessions, and iterate on your cards — all in one place.
+A local web client for roleplaying with character cards — multi-character sessions, token-by-token streaming replies, keyword-triggered lorebooks, and a full card/persona authoring toolkit. Forked from [Character School](https://github.com/krazif/Character_School) as the pure roleplay edition: the school/analysis mode is gone, everything else stays.
 
-
+![RP Mode](rp.png)
 
 ---
 
 ## Features
 
-### Two Modes
+### Roleplay Sessions
 
-- **School Mode** — Single-character testing scratchpad. Pick a character card, chat, and get real-time analysis. No session persistence (scratchpad only).
-- **RP Mode** — Multi-character roleplay with 1–4 characters + a persona. Sessions are persistent in SQLite and resumable.
-
-### Character Card Support
-
-- Supports **V1** (flat JSON), **V2** (`chara_card_v2`), and **V3** (`chara_card_v3`) formats
-- V3 field aliases handled automatically (`first_message` → `first_mes`, `message_examples` → `mes_example`)
-- V3 content arrays ( `{type:"text", text:"..."}` blocks) flattened to plain strings for editing and prompt building
-- Card editing normalizes to V2 in the frontend, denormalizes back to native format on save
-- **PNG card import/export** — SillyTavern-compatible format with base64-encoded JSON in `chara`/`ccv3`/`character_card` tEXt/iTXt chunks
-- Upload character cards via the UI (JSON or PNG)
-- Download cards as PNG or JSON
-
+- **1–4 characters + a persona** per session, persistent in SQLite and resumable from the sidebar; fork any session to branch a scene.
+- **Turn routing**: auto (all characters respond) or directed (target one character — it gets full card detail while the others stay brief mentions, which prevents personality bleed).
+- **Response length**: `short` / `moderate` / `long` / `flexible`. The style sets a **ceiling with headroom**, not a hard cut (short → 800 tokens, moderate → 1100 — sized above the word target so a reply that wants that length finishes on its own instead of being chopped mid-sentence). A reply that still reaches the ceiling is **flagged, never trimmed**: the message carries `truncated: true` and shows a `continue` action that extends it. The flag comes from the endpoint's own `finish_reason` — not a guess at the text.
+- **Auto-continue**: a reply cut by the *global* budget continues itself inside the same bubble. A style-cap cut is never auto-continued — extending it would defeat the cap.
 
 ### Streaming Replies
 
-- Character replies stream token-by-token into the chat — the bubble grows as the model generates instead of appearing in one lump at the end.
-- RP auto mode's leading `[CharacterName]:` prefix is held back while streaming, so the bubble shows exactly the text the stored message will show.
-- Works against any OpenAI-compatible endpoint: if one rejects streaming parameters, the request falls back to a plain call and the reply still arrives (just without live output).
+- Character replies stream token-by-token — the bubble grows as the model generates instead of arriving in one lump.
+- The leading `[CharacterName]:` prefix is held back while streaming (a continuation's re-stated header is held and stripped too), so the bubble shows exactly the text the stored message will show.
+- Works against any OpenAI-compatible endpoint: if one rejects streaming parameters, the request falls back to a plain call and the reply still arrives.
 
-![School Mode](school.png)
-### Response Length
+### Lorebooks (World Info)
 
-- The selected style sets a **ceiling with headroom**, not a hard cut: `short` → 450 tokens, `moderate` → 700, both sized above the word target (150/300 words ≈ 230/460 tokens at this model's measured ratio) so a reply that wants that length finishes on its own instead of being chopped mid-sentence. `long` and `flexible` keep the global budget with no ceiling.
-- A reply that still reaches the ceiling is **flagged, never trimmed**: the message carries `truncated: true` and the last message in the chat shows a `continue` action, which runs the existing `/continue` (both modes) to extend it. Nothing is silently lost, and the flag comes from the endpoint's own `finish_reason` — not a guess at the text.
-- The console shows `max=450` on the request, so the ceiling in force is always visible.
+- **SillyTavern-compatible** lorebooks: keyword-triggered entries with primary/secondary keys, constant entries, insertion order, and per-entry position.
+- Three positions, all real: *before system* (prepend to the system message), *after system* (append), *before chat* (its own message directly before the first user turn).
+- ST insertion order honoured: constants first, then ascending `order` — a larger order sits closer to the chat and carries more impact.
+- Attach any number of lorebooks per session from the scene bar; the console shows exactly what was injected.
 
-### Real-Time LLM Analysis
+### Character Cards
 
-- Two independent LLM endpoints — one for character responses, one for analysis
-- Analyzer checks rule compliance, character consistency, and tone
-- Fix suggestions per issue: specifies the card field to edit, action (add/replace/append), ready-to-paste fix text, priority, and exact placement location
+- Supports **V1** (flat JSON), **V2** (`chara_card_v2`), and **V3** (`chara_card_v3`); V3 field aliases and content arrays handled automatically.
+- Card library in the sidebar: upload (JSON or PNG), edit in-app (✏️), download as PNG or JSON, delete.
+- **PNG card import/export** — SillyTavern-compatible format with base64-encoded JSON in `chara`/`ccv3` tEXt chunks.
+- **AI card generation** from a concept with hints (name, age, personality, scenario, appearance, NSFW toggle); the generation calls are visible in the console.
 
+### Prompt Stack
 
-
-![RP Mode](rp.png)
-### RP Mode Features
-
-- **Turn routing**: auto (all characters respond) or directed (target a specific character)
-- Directed mode gives the targeted character full card detail while reducing others to brief mentions — prevents personality bleed
-- **Response style**: brief or detailed
-- **Configurable summarization** — summary window and raw window settings to manage context length
-- RP sessions persist in SQLite; resume any session from the sidebar
-
+- Per-session prompt stack builder: system prompt, head/tail windows, summary chunks, custom blocks — with a token estimate per block.
+- **Configurable summarization** — summary window and raw window settings manage context length; summaries update as scenes progress.
 
 ### Persona System
 
-- Personas are counterparties with physical traits (build, face, height, confidence, energy) injected into both character and analysis LLM prompts
-- 6 starter personas included
-- Upload and manage personas via the UI
-- Persona selection affects both School and RP modes
+- Personas are counterparties with physical traits injected into character prompts.
+- 6 starter personas included; create and edit personas in-app (Persona → ✏️ Edit in the session setup).
 
+### Scene Images
 
+- Generate scene images via ComfyUI (workflow selectable in Settings), insert into chat or set as session background, regenerate with seed.
 
-![Settings](settings.png)
+### UI Niceties
 
-### Settings & Configuration
-
-- Full config editable in-app via the Settings page (no need to edit files manually)
-- Config saved in `config.jsonc` (JSONC format — comments allowed)
-- **Danger Zone**: Reset Database button wipes all sessions and messages, then VACUUMs to reclaim disk space
-
-### UI niceties
-
-- `*text*` renders italic, `"text"` renders bold in chat messages
-- Console panel shows raw, unformatted LLM prompt/response inspector — fully verbose, no truncation
-- Token counter in header (counts prompt package only: system prompt + messages + summary)
-- Dark theme throughout
+- `*text*` renders italic, `"text"` renders bold in chat messages.
+- LLM console panel: raw, unformatted prompt/response inspector — fully verbose, no truncation — including lorebook injections and auto-continue events.
+- Chat backgrounds (upload or URL, per-session persistence), dark theme throughout, swipes on every message (alternatives side by side with left/right arrows).
+- **Settings** editable in-app (saved to `config.jsonc`); **Danger Zone** resets the database and VACUUMs.
 
 ---
 
@@ -88,29 +65,20 @@ A standalone web app for testing and QA-ing character cards with real-time LLM a
 ### Prerequisites
 
 - Python 3.11+
-- Any OpenAI-compatible LLM API endpoint (OpenRouter, local LLM, etc.)
+- Any OpenAI-compatible LLM API endpoint (OpenRouter, a local server, etc.)
 
 ### 1. Clone the repo
 
 ```bash
-git clone https://github.com/krazif/Character_School.git
-cd Character_School
+git clone https://github.com/krazif/KedaiKopi.git
+cd KedaiKopi
 ```
 
 ### 2. (Optional) Create a virtual environment
 
 ```bash
-# Linux / macOS
 python -m venv .venv
-source .venv/bin/activate
-
-# Windows (PowerShell)
-python -m venv .venv
-.venv\Scripts\Activate.ps1
-
-# Windows (cmd)
-python -m venv .venv
-.venv\Scripts\activate.bat
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
 ```
 
 ### 3. Install dependencies
@@ -128,16 +96,16 @@ python main.py
 Or with uvicorn directly:
 
 ```bash
-python -m uvicorn main:app --host 0.0.0.0 --port 7862
+python -m uvicorn main:app --host 0.0.0.0 --port 7864
 ```
 
-The app starts on `http://0.0.0.0:7862` by default. Open `http://localhost:7862` in your browser.
+The app starts on `http://0.0.0.0:7864` by default. Character School, if also running, holds 7862 — the two coexist side by side. Open `http://localhost:7864` in your browser.
 
 > **Note:** The server starts even without API keys configured. Go to the Settings page in the UI to add your LLM API keys.
 
 ### Configuration
 
-Settings are in `config.jsonc` (auto-created on first run). You can edit it in-app via the Settings page or manually:
+Settings live in `config.jsonc` (auto-created on first run; JSONC — comments allowed). Edit in-app via Settings or by hand:
 
 ```jsonc
 {
@@ -149,17 +117,9 @@ Settings are in `config.jsonc` (auto-created on first run). You can edit it in-a
     "temperature": 0.8,
     "max_tokens": 2000
   },
-  // Analysis endpoint — checks rule compliance
-  "analysis": {
-    "base_url": "https://openrouter.ai/api/v1",
-    "api_key": "your-api-key",
-    "model": "deepseek/deepseek-v4-flash",
-    "temperature": 0.1,
-    "max_tokens": 1500
-  },
   "server": {
     "host": "0.0.0.0",
-    "port": 7862
+    "port": 7864
   },
   "paths": {
     "characters_dir": null,  // null = defaults to ./characters
@@ -168,54 +128,56 @@ Settings are in `config.jsonc` (auto-created on first run). You can edit it in-a
 }
 ```
 
-All settings can also be overridden via environment variables with the `CHARACTERSCHOOL_` prefix:
+All settings can also be overridden via environment variables with the `KEDAIKOPI_` prefix:
 
 | Env Var | Description |
 |---------|-------------|
-| `CHARACTERSCHOOL_CHAT_BASE_URL` | Chat LLM API base URL |
-| `CHARACTERSCHOOL_CHAT_API_KEY` | Chat LLM API key |
-| `CHARACTERSCHOOL_CHAT_MODEL` | Chat LLM model name |
-| `CHARACTERSCHOOL_ANALYSIS_BASE_URL` | Analysis LLM API base URL |
-| `CHARACTERSCHOOL_ANALYSIS_API_KEY` | Analysis LLM API key |
-| `CHARACTERSCHOOL_ANALYSIS_MODEL` | Analysis LLM model name |
-| `CHARACTERSCHOOL_HOST` | Server bind address |
-| `CHARACTERSCHOOL_PORT` | Server port |
+| `KEDAIKOPI_CHAT_BASE_URL` | Chat LLM API base URL |
+| `KEDAIKOPI_CHAT_API_KEY` | Chat LLM API key |
+| `KEDAIKOPI_CHAT_MODEL` | Chat LLM model name |
+| `KEDAIKOPI_HOST` | Server bind address |
+| `KEDAIKOPI_PORT` | Server port |
 
 ---
 
 ## Tests
 
-Stdlib-only unit tests for the streaming layer, plus an end-to-end check that
-starts a mock LLM and a second app instance (throwaway copy — the dev
-database is never touched) and drives the real WebSocket protocol:
+Unit tests for the streaming layer, the response-style ceilings, and the lorebook engine (keyword matching, ST insertion order, placement), plus an end-to-end check that starts a mock LLM and a second app instance (throwaway copy — the real database is never touched) and drives the real WebSocket protocol:
 
 ```bash
-python -m unittest discover -s tests      # streaming / auto-continue units
-python tests/e2e_stream_check.py          # A–E: school, RP prefix, auto-continue, style cap, fallback
+python -m unittest discover -s tests      # streaming / length / lorebook units
+python tests/e2e_stream_check.py          # A–E over /ws/rp: streaming, prefix,
+                                          # auto-continue, style ceiling, fallback
 ```
 
-`tests/mock_llm.py` is a standalone OpenAI-compatible endpoint (streamed,
-word by word) that can also be run by hand for poking at the UI.
+`tests/mock_llm.py` is a standalone OpenAI-compatible endpoint (streamed, word by word) that can also be run by hand for poking at the UI.
 
 ## Project Layout
 
 ```
-character-school/
+KedaiKopi/
 ├── main.py                # FastAPI app entry point (routers + static mount)
-├── db.py                  # Config + SQLite data layer
-├── engine.py              # Pure logic (cards, personas, prompts, PNG, analysis)
-├── school.py              # School mode routes + WebSocket + card generation
-├── rp.py                  # RP mode routes + WebSocket + config API
+├── db.py                  # Backward-compat shim (config + database)
+├── config.py              # JSONC config + LLM clients
+├── database.py            # SQLite data layer (RP sessions/messages/characters)
+├── engine.py              # Pure logic (cards, personas, prompts, streaming, PNG)
+├── rp.py                  # RP routes + WebSocket + config API
+├── library.py             # Card/persona library + AI card generation routes
+├── lorebook.py            # World Info: matching, ST order, placement, injection
+├── imagegen.py            # ComfyUI scene image generation
 ├── config.jsonc           # Configuration (auto-created, editable in-app)
-├── char_test.db           # SQLite database (sessions, messages)
-├── tests/                 # streaming units, mock LLM, end-to-end WS check
+├── kedai.db               # SQLite database (sessions, messages) — gitignored
+├── tests/                 # unit tests, mock LLM, end-to-end WS check
 ├── LICENSE                # Apache 2.0
 ├── NOTICE                 # Attribution notice
 ├── README.md              # This file
-├── characters/            # Character card JSON/PNG files (symlink-able)
+├── characters/            # Character card JSON/PNG files
 ├── personas/              # Persona JSON files
+├── lorebooks/             # Lorebook (World Info) JSON files
 └── static/
-    └── index.html         # Single-file frontend (inline CSS + JS)
+    ├── index.html         # Frontend shell (inline CSS)
+    └── js/                # core / cards / ui / rp / sessions / stack /
+                           # lorebook / settings / messages / imagegen
 ```
 
 ---
@@ -223,11 +185,15 @@ character-school/
 ## Tech Stack
 
 - **Backend**: Python, FastAPI, uvicorn, SQLite
-- **Frontend**: Single-file HTML/CSS/JS (no build step, no framework)
-- **LLM**: Any OpenAI-compatible API (tested with OpenRouter)
-- **Image handling**: Pillow (for PNG card import/export)
+- **Frontend**: HTML/CSS/JS (no build step, no framework)
+- **LLM**: Any OpenAI-compatible API
+- **Image handling**: Pillow (PNG card import/export)
 
 ---
+
+## Provenance
+
+KedaiKopi is a fork of [Character School](https://github.com/krazif/Character_School) and keeps its git history — `git diff Character_School` remains available for syncing. Bugs in shared code are fixed in both repos.
 
 ## License
 

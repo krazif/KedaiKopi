@@ -1,4 +1,4 @@
-// Character School — stack.js
+// KedaiKopi — stack.js
 // Stack builder UI (context management blocks).
 
 // ─── Stack Builder ──────────────────────────────────────────────
@@ -44,17 +44,6 @@ function openStackBuilder() {
   activeStackConfig = rpStackConfig;
   activeStackWS = rpWS;
   activeStackMode = 'rp';
-  renderStackBlocks();
-  document.getElementById('stackOverlay').classList.add('show');
-}
-
-function openSchoolStackBuilder() {
-  if (!schoolActiveSessionId) { alert('Start or resume a session first.'); return; }
-  if (!schoolStackConfig) schoolStackConfig = getDefaultStackConfig();
-  normalizeStackTypes(schoolStackConfig.blocks);
-  activeStackConfig = schoolStackConfig;
-  activeStackWS = ws;
-  activeStackMode = 'school';
   renderStackBlocks();
   document.getElementById('stackOverlay').classList.add('show');
 }
@@ -287,12 +276,6 @@ function saveStackConfig() {
   });
   if (activeStackWS && activeStackWS.readyState === WebSocket.OPEN) {
     activeStackWS.send(JSON.stringify({ type: 'update_stack', stack_config: activeStackConfig }));
-  } else if (activeStackMode === 'school' && schoolActiveSessionId) {
-    // Fallback: save via REST
-    fetch('/api/school/sessions/' + schoolActiveSessionId + '/stack', {
-      method: 'PUT', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({stack_config: activeStackConfig})
-    });
   }
 }
 
@@ -300,11 +283,7 @@ function resetStackConfig() {
   const sysText = activeStackConfig ? activeStackConfig._systemPromptText : '';
   activeStackConfig = getDefaultStackConfig();
   activeStackConfig._systemPromptText = sysText;
-  if (activeStackMode === 'rp') {
-    rpStackConfig = activeStackConfig;
-  } else {
-    schoolStackConfig = activeStackConfig;
-  }
+  rpStackConfig = activeStackConfig;
   renderStackBlocks();
 }
 

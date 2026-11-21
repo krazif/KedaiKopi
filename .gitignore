@@ -1,6 +1,6 @@
 # Database
-char_test.db
-char_test.db-*
+kedai.db
+kedai.db-*
 
 # Python
 __pycache__/

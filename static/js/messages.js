@@ -1,13 +1,10 @@
-// Character School — messages.js
+// KedaiKopi — messages.js
 // Virtual scrolling, message DOM builders, delete/regenerate/swipe/clear.
 
 // ─── Virtual Scrolling ─────────────────────────
 const VIRTUAL_SCROLL_BATCH = 50; // default number of messages to render
-let schoolMessages = []; // full message array for School mode
 let rpMessages = []; // full message array for RP mode
-let schoolVisibleCount = { value: VIRTUAL_SCROLL_BATCH };
 let rpVisibleCount = { value: VIRTUAL_SCROLL_BATCH };
-let schoolObserver = null;
 let rpObserver = null;
 
 function initVirtualScroll(containerId, messagesArr, visibleCountObj, observerRef) {
@@ -48,7 +45,6 @@ function initVirtualScroll(containerId, messagesArr, visibleCountObj, observerRe
 function renderVirtualMessages(containerId, messagesArr, visibleCount) {
   const container = document.getElementById(containerId);
   if (!container) return;
-  const isSchool = containerId === 'chatMessages';
   // Save sentinel if present
   const sentinel = container.querySelector('.virtual-scroll-sentinel');
   // Clear container
@@ -61,9 +57,7 @@ function renderVirtualMessages(containerId, messagesArr, visibleCount) {
   // Render messages from start to end
   for (let i = start; i < total; i++) {
     const msg = messagesArr[i];
-    const frag = isSchool
-      ? buildSchoolMessageDOM(msg, i)
-      : buildRPMessageDOM(msg, i);
+    const frag = buildRPMessageDOM(msg, i);
     container.appendChild(frag);
   }
   // Scroll to bottom on new messages (only if already near bottom)
@@ -71,109 +65,6 @@ function renderVirtualMessages(containerId, messagesArr, visibleCount) {
   if (wasNearBottom || sentinel === null) {
     container.scrollTop = container.scrollHeight;
   }
-}
-
-function buildSchoolMessageDOM(msg, index) {
-  const frag = document.createDocumentFragment();
-  // Image-only message: just a middle balloon, no chat bubble
-  if (msg.imagePath && (!msg.content || !msg.content.trim())) {
-    frag.appendChild(buildImageBalloon(msg.imagePath, '/api/school/images/', index, deleteSchoolMessage, msg.imagePrompt, msg.seed));
-    return frag;
-  }
-  const div = document.createElement('div');
-  div.className = 'message ' + msg.role;
-  if (msg.role === 'character' && msg.isFirst) div.classList.add('first-mes');
-  div.dataset.messageId = msg.messageId || '';
-  div.dataset.clientId = msg.clientId || '';
-  // Badge
-  const badge = document.createElement('span');
-  badge.className = 'msg-badge';
-  badge.textContent = index;
-  div.appendChild(badge);
-  // Label
-  const label = document.createElement('span');
-  label.className = 'msg-label';
-  div.appendChild(document.createTextNode(' '));
-  label.textContent = msg.role === 'user' ? (msg.personaName || 'You') : (currentCard?.data?.name || 'Character');
-  div.appendChild(label);
-  // Content
-  const contentDiv = document.createElement('div');
-  contentDiv.className = 'msg-content';
-  contentDiv.innerHTML = formatMessage(msg.content);
-  div.appendChild(contentDiv);
-  // Analysis (School only)
-  if (msg.analysis) {
-    const analysisDiv = document.createElement('div');
-    analysisDiv.className = 'msg-analysis';
-    analysisDiv.textContent = msg.analysis;
-    div.appendChild(analysisDiv);
-  }
-  // Actions (delete + regenerate for character)
-  if (msg.role !== 'system') {
-    const actionsDiv = document.createElement('div');
-    actionsDiv.className = 'msg-actions';
-    if (msg.role === 'character') {
-      const wordCount = (msg.content || '').trim().split(/\s+/).filter(w => w.length > 0).length;
-      const wcSpan = document.createElement('span');
-      wcSpan.className = 'msg-word-count';
-      wcSpan.textContent = wordCount + ' words';
-      actionsDiv.appendChild(wcSpan);
-      // Swipe controls
-      const swipeCount = (msg.swipes && msg.swipes.length) ? msg.swipes.length : 1;
-      const activeSwipe = msg.activeSwipe || 0;
-      if (swipeCount > 1) {
-        const swipeDiv = document.createElement('span');
-        swipeDiv.className = 'swipe-controls';
-        const leftBtn = document.createElement('a');
-        leftBtn.textContent = '◀';
-        leftBtn.className = 'swipe-arrow';
-        leftBtn.onclick = () => swipeSchoolMessage(index, activeSwipe - 1);
-        if (activeSwipe <= 0) leftBtn.style.opacity = '0.3';
-        swipeDiv.appendChild(leftBtn);
-        const counter = document.createElement('span');
-        counter.className = 'swipe-counter';
-        counter.textContent = (activeSwipe + 1) + '/' + swipeCount;
-        swipeDiv.appendChild(counter);
-        const rightBtn = document.createElement('a');
-        rightBtn.textContent = '▶';
-        rightBtn.className = 'swipe-arrow';
-        rightBtn.onclick = () => swipeSchoolMessage(index, activeSwipe + 1);
-        if (activeSwipe >= swipeCount - 1) rightBtn.style.opacity = '0.3';
-        swipeDiv.appendChild(rightBtn);
-        actionsDiv.appendChild(swipeDiv);
-      }
-      const regenLink = document.createElement('a');
-      if (msg.truncated && index === schoolMessages.length - 1) {
-        const contLink = document.createElement('a');
-        contLink.className = 'continue-link';
-        contLink.textContent = 'continue';
-        contLink.title = 'This reply hit the length limit — extend it';
-        contLink.onclick = () => continueSchoolMessage();
-        actionsDiv.appendChild(contLink);
-      }
-      regenLink.className = 'regenerate-link';
-      regenLink.textContent = 'regenerate';
-      regenLink.onclick = () => regenerateSchoolMessage(index);
-      actionsDiv.appendChild(regenLink);
-    }
-    const delLink = document.createElement('a');
-    delLink.className = 'msg-delete-link';
-    delLink.textContent = 'delete';
-    delLink.onclick = () => deleteSchoolMessage(index);
-    actionsDiv.appendChild(delLink);
-    const delFromHere = document.createElement('a');
-    delFromHere.className = 'msg-delete-link';
-    delFromHere.textContent = 'delete from here';
-    delFromHere.onclick = () => deleteSchoolMessageFromHere(index);
-    actionsDiv.appendChild(delFromHere);
-    div.appendChild(actionsDiv);
-  }
-  frag.appendChild(div);
-  // If message also has an image, split it into a separate middle balloon below
-  if (msg.imagePath) {
-    frag.appendChild(buildImageBalloon(msg.imagePath, '/api/school/images/', index, deleteSchoolMessage, msg.imagePrompt, msg.seed));
-  }
-  return frag;
 }
 
 function buildRPMessageDOM(msg, index) {
@@ -277,60 +168,6 @@ function buildRPMessageDOM(msg, index) {
   return frag;
 }
 
-function deleteSchoolMessage(index) {
-  if (index < 0 || index >= schoolMessages.length) return;
-  const msg = schoolMessages[index];
-  const msgId = msg.messageId;
-  const cid = msg.clientId;
-  if ((msgId || cid) && ws && ws.readyState === WebSocket.OPEN) {
-    const payload = { type: 'delete_single_message' };
-    if (msgId) payload.message_id = msgId;
-    else payload.client_msg_id = cid;
-    ws.send(JSON.stringify(payload));
-  }
-  // Remove only this message
-  schoolMessages.splice(index, 1);
-  schoolVisibleCount.value = Math.min(schoolVisibleCount.value, schoolMessages.length);
-  renderVirtualMessages('chatMessages', schoolMessages, schoolVisibleCount.value);
-}
-
-function deleteSchoolMessageFromHere(index) {
-  if (index < 0 || index >= schoolMessages.length) return;
-  const msg = schoolMessages[index];
-  const msgId = msg.messageId;
-  const cid = msg.clientId;
-  if ((msgId || cid) && ws && ws.readyState === WebSocket.OPEN) {
-    const payload = { type: 'delete_message' };
-    if (msgId) payload.message_id = msgId;
-    else payload.client_msg_id = cid;
-    ws.send(JSON.stringify(payload));
-  }
-  // Remove this message and all subsequent
-  schoolMessages.splice(index);
-  schoolVisibleCount.value = Math.min(schoolVisibleCount.value, schoolMessages.length);
-  renderVirtualMessages('chatMessages', schoolMessages, schoolVisibleCount.value);
-}
-
-function deleteSchoolMessageByClientId(cid) {
-  if (!cid) return;
-  const idx = schoolMessages.findIndex(m => m.clientId === cid);
-  if (idx >= 0) deleteSchoolMessage(idx);
-}
-
-function regenerateSchoolMessage(index) {
-  if (index < 0 || index >= schoolMessages.length) return;
-  const msg = schoolMessages[index];
-  if (msg.role !== 'character') return;
-  const msgId = msg.messageId;
-  if (!msgId || !ws || ws.readyState !== WebSocket.OPEN) return;
-  // Remove subsequent messages but keep the target (swipe will update it)
-  schoolMessages.splice(index + 1);
-  schoolVisibleCount.value = Math.min(schoolVisibleCount.value, schoolMessages.length);
-  renderVirtualMessages('chatMessages', schoolMessages, schoolVisibleCount.value);
-  // Tell server to truncate after target and regenerate as swipe
-  ws.send(JSON.stringify({ type: 'regenerate_message', message_id: msgId }));
-}
-
 function deleteRPMessage(index) {
   if (index < 0 || index >= rpMessages.length) return;
   const msg = rpMessages[index];
@@ -383,15 +220,6 @@ function regenerateRPMessage(index) {
   rpWS.send(JSON.stringify({ type: 'regenerate_message', message_id: msgId }));
 }
 
-function swipeSchoolMessage(index, swipeIndex) {
-  if (index < 0 || index >= schoolMessages.length) return;
-  const msg = schoolMessages[index];
-  const msgId = msg.messageId;
-  if (!msgId || !ws || ws.readyState !== WebSocket.OPEN) return;
-  if (swipeIndex < 0) return;
-  ws.send(JSON.stringify({ type: 'swipe_message', message_id: msgId, swipe_index: swipeIndex }));
-}
-
 function swipeRPMessage(index, swipeIndex) {
   if (index < 0 || index >= rpMessages.length) return;
   const msg = rpMessages[index];
@@ -399,15 +227,6 @@ function swipeRPMessage(index, swipeIndex) {
   if (!msgId || !rpWS || rpWS.readyState !== WebSocket.OPEN) return;
   if (swipeIndex < 0) return;
   rpWS.send(JSON.stringify({ type: 'swipe_message', message_id: msgId, swipe_index: swipeIndex }));
-}
-
-function clearSchoolChat() {
-  clearStreamBubble();
-  schoolMessages = [];
-  schoolVisibleCount.value = VIRTUAL_SCROLL_BATCH;
-  const container = document.getElementById('chatMessages');
-  if (container) container.innerHTML = '';
-  if (schoolObserver) { schoolObserver.disconnect(); schoolObserver = null; }
 }
 
 function openImageLightbox(src, promptText, seed) {
@@ -470,30 +289,23 @@ function clearRPChat() {
 // mode's leading "[Name]:" prefix, so what lands here matches the final text.
 let _streamBubble = null;   // { containerId, el, contentEl, text }
 
-function startStreamBubble(mode, label) {
+function startStreamBubble(label) {
   clearStreamBubble();
-  // Swap the typing dots for the growing bubble
-  if (mode === 'rp') {
-    hideRPTyping();
-  } else {
-    const typing = document.getElementById('schoolCharTyping');
-    if (typing) typing.remove();
-  }
-  const containerId = mode === 'rp' ? 'rpChatMessages' : 'chatMessages';
-  const container = document.getElementById(containerId);
+  hideRPTyping();  // swap the typing dots for the growing bubble
+  const container = document.getElementById('rpChatMessages');
   if (!container) return;
   const div = document.createElement('div');
   div.id = 'streamBubble';
-  div.className = mode === 'rp' ? 'rp-msg character streaming' : 'message character streaming';
+  div.className = 'rp-msg character streaming';
   const labelEl = document.createElement('span');
-  labelEl.className = mode === 'rp' ? 'rp-msg-label' : 'msg-label';
+  labelEl.className = 'rp-msg-label';
   labelEl.textContent = label || '';
   div.appendChild(labelEl);
   const contentEl = document.createElement('div');
-  contentEl.className = mode === 'rp' ? 'rp-msg-content' : 'msg-content';
+  contentEl.className = 'rp-msg-content';
   div.appendChild(contentEl);
   container.appendChild(div);
-  _streamBubble = { containerId, el: div, contentEl, text: '' };
+  _streamBubble = { containerId: 'rpChatMessages', el: div, contentEl, text: '' };
 }
 
 function appendStreamText(text) {
@@ -516,11 +328,9 @@ function clearStreamBubble() {
   }
 }
 
-function handleStreamDelta(mode, data) {
+function handleStreamDelta(data) {
   if (!_streamBubble) {
-    const label = data.character_name
-      || (mode === 'rp' ? 'Someone' : (currentCard?.data?.name || 'Character'));
-    startStreamBubble(mode, label);
+    startStreamBubble(data.character_name || 'Someone');
   }
   appendStreamText(data.text || '');
 }

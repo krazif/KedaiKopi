@@ -2,11 +2,13 @@
 
     python tests/e2e_stream_check.py
 
-Starts the mock LLM (tests/mock_llm.py) and a second Character School
-instance on its own port, in a throwaway copy of the repo so the dev
-database is never touched, then runs five scenarios:
+Starts the mock LLM (tests/mock_llm.py) and a second KedaiKopi instance
+on its own port, in a throwaway copy of the repo so the real database is
+never touched, then runs five scenarios (all against /ws/rp — this app
+has no school mode):
 
-  A  School mode   deltas arrive spread over time and match the final message
+  A  RP session   deltas arrive spread over time, match the final message,
+                  and persist to SQLite
   B  RP auto mode  "[Name]:" prefix never reaches the bubble, speaker does
   C  TRUNCATE      auto-continue keeps streaming into the same bubble
   E  style 'short' ceiling does not bite a natural reply; cuts only a runaway
@@ -27,8 +29,8 @@ import urllib.request
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 PY = "/home/razif/miniconda3/bin/python3"
-MOCK_PORT = 8898   # deliberately != the manual UI instance ports
-APP_PORT = 7898
+MOCK_PORT = 8897   # deliberately != the manual UI instance ports
+APP_PORT = 7897
 CONTINUED_TAIL = "and that is exactly how the rest of it went"
 
 FAILURES = []
@@ -81,10 +83,12 @@ def typed(frames, kind):
     return any(f.get("type") == kind for _, f in frames)
 
 
-async def run_school_scenario(uri, card_name, text, expect_deltas=True, style=None):
+async def run_rp_scenario(uri, text, expect_deltas=True, style=None):
+    """Start an RP session with p_ramlee, optionally set style, send text,
+    wait for the character reply. Returns (frames, deltas, final, session_id)."""
     import websockets
     async with websockets.connect(uri, max_size=16 * 1024 * 1024) as ws:
-        await ws.send(json.dumps({"type": "start", "card_filename": "p_ramlee.json"}))
+        await ws.send(json.dumps({"type": "start", "characters": ["p_ramlee.json"]}))
         frames = await collect_until(ws, lambda f: f.get("type") == "session_started")
         frames += await collect_until(ws, lambda f: f.get("type") == "character_message"
                                       and f.get("is_first_mes"))
@@ -106,10 +110,10 @@ async def run_school_scenario(uri, card_name, text, expect_deltas=True, style=No
     return frames, d, final, session_id
 
 
-async def scenario_a_school(uri, card_name):
-    print("A. School mode — incremental delivery")
+async def scenario_a_rp(uri):
+    print("A. RP mode — incremental delivery")
     text = "Tell me about the afternoon."
-    frames, deltas, final, session_id = await run_school_scenario(uri, card_name, text)
+    frames, deltas, final, session_id = await run_rp_scenario(uri, text)
 
     check("typing indicator precedes the first delta",
           typed(frames, "character_typing") and deltas
@@ -128,10 +132,9 @@ async def scenario_a_school(uri, card_name):
     check("a reply that stopped naturally is not flagged truncated",
           final.get("truncated") is False, f"truncated={final.get('truncated')!r}")
 
-    with urllib.request.urlopen(f"http://127.0.0.1:{APP_PORT}/api/school/sessions/{session_id}") as r:
+    with urllib.request.urlopen(f"http://127.0.0.1:{APP_PORT}/api/rp/sessions/{session_id}") as r:
         stored = json.load(r)
-    stored_texts = [m["content"] for m in stored["messages"] if m["role"] == "assistant"
-                    and not m["is_first_mes"]]
+    stored_texts = [m["content"] for m in stored["messages"] if m["role"] == "character"]
     check("final message persisted to SQLite", final["content"] in stored_texts)
     return final["content"]
 
@@ -153,7 +156,6 @@ async def scenario_b_rp(uri, card_name):
     deltas = deltas_of(frames)
     joined = "".join(t for _, t in deltas)
 
-    joined = "".join(t for _, t in deltas)
     check("prefix never reaches the bubble", "[" not in joined, repr(joined[:40]))
     check("speaker carried on the delta frames",
           all(f.get("character_name") == card_name for _, f in frames
@@ -167,10 +169,10 @@ async def scenario_b_rp(uri, card_name):
           f"{len(deltas)} frames")
 
 
-async def scenario_c_auto_continue(uri, card_name):
+async def scenario_c_auto_continue(uri):
     print("C. TRUNCATE on an uncapped style — auto-continue keeps streaming")
-    frames, deltas, final, _ = await run_school_scenario(
-        uri, card_name, "TRUNCATE this please", style="long")
+    frames, deltas, final, _ = await run_rp_scenario(
+        uri, "TRUNCATE this please", style="long")
 
     events = [f for _, f in frames if f.get("type") == "console_event"]
     check("auto-continue console event fired",
@@ -182,17 +184,17 @@ async def scenario_c_auto_continue(uri, card_name):
     check("streamed text == final message", joined == final["content"])
 
 
-async def scenario_e_style_cap(uri, card_name):
+async def scenario_e_style_cap(uri):
     """Pyre's model: a ceiling that does not bite. A reply that wants the
     length finishes on its own; only a runaway is cut — flagged truncated,
     never trimmed and never silently continued."""
     print("E. Response style 'short' — ceiling that does not bite, cuts only a runaway")
     import websockets
 
-    # E1: a long-but-natural reply (~470 words) fits under the 800-token
-    # ceiling and finishes on its own — no truncation at all.
+    # E1: a long-but-natural reply fits under the ceiling and finishes on
+    # its own — no truncation at all.
     async with websockets.connect(uri, max_size=16 * 1024 * 1024) as ws:
-        await ws.send(json.dumps({"type": "start", "card_filename": "p_ramlee.json"}))
+        await ws.send(json.dumps({"type": "start", "characters": ["p_ramlee.json"]}))
         frames = await collect_until(ws, lambda f: f.get("type") == "session_started")
         frames += await collect_until(ws, lambda f: f.get("type") == "character_message"
                                       and f.get("is_first_mes"))
@@ -214,7 +216,7 @@ async def scenario_e_style_cap(uri, card_name):
 
     check("style ceiling sent instead of the global 2000", cap == 800,
           f"max_tokens={cap}")
-    check("length note rides the last user message (author's-note position)",
+    check("length note rides the last message (author's-note position)",
           bool(req) and "[Reply length —" in (req.get("messages") or [{"content": ""}])[-1].get("content", ""),
           f"last message ends: ...{(req['messages'][-1]['content'][-60:] if req else '')!r}")
     check("a long-natural reply finishes on its own — no truncation",
@@ -227,11 +229,11 @@ async def scenario_e_style_cap(uri, card_name):
     check("no trim event — trimming was removed",
           not any(e.get("event") == "style_trim" for e in events))
 
-    # E2: a runaway reply (~1080 words) still hits the ceiling — cut, flagged
-    # truncated for the client, kept verbatim, and NOT auto-continued
-    # (continuing would defeat the cap).
+    # E2: a runaway reply still hits the ceiling — cut, flagged truncated
+    # for the client, kept verbatim, and NOT auto-continued (continuing
+    # would defeat the cap).
     async with websockets.connect(uri, max_size=16 * 1024 * 1024) as ws:
-        await ws.send(json.dumps({"type": "start", "card_filename": "p_ramlee.json"}))
+        await ws.send(json.dumps({"type": "start", "characters": ["p_ramlee.json"]}))
         frames = await collect_until(ws, lambda f: f.get("type") == "session_started")
         frames += await collect_until(ws, lambda f: f.get("type") == "character_message"
                                       and f.get("is_first_mes"))
@@ -258,9 +260,9 @@ async def scenario_e_style_cap(uri, card_name):
           f"streamed {len(streamed)} chars, stored {len(content)}")
 
 
-async def scenario_d_fallback(uri, card_name):
+async def scenario_d_fallback(uri):
     print("D. Endpoint rejects stream — plain-request fallback")
-    frames, deltas, final, _ = await run_school_scenario(uri, card_name, "Any answer at all.")
+    frames, deltas, final, _ = await run_rp_scenario(uri, "Any answer at all.")
     check("no deltas were possible", len(deltas) == 0, f"{len(deltas)} frames")
     check("final message still correct", "afternoon light" in final["content"],
           repr(final["content"][:50]))
@@ -279,12 +281,12 @@ def start_app(workdir, env_overrides, log_path):
 async def main():
     import websockets  # noqa: F401  (fail fast if missing)
 
-    tmp = pathlib.Path(tempfile.mkdtemp(prefix="cs-e2e-"))
+    tmp = pathlib.Path(tempfile.mkdtemp(prefix="kk-e2e-"))
     app_dir = tmp / "app"
     shutil.copytree(
         REPO, app_dir,
-        ignore=shutil.ignore_patterns(".git", "__pycache__", "char_test.db*", "uploads",
-                                      "*.pyc", "config.jsonc"),
+        ignore=shutil.ignore_patterns(".git", "__pycache__", "kedai.db*", "char_test.db*",
+                                      "uploads", "*.pyc", "config.jsonc"),
     )
     card_name = json.loads((app_dir / "characters" / "p_ramlee.json").read_text())["data"]["name"]
 
@@ -301,30 +303,30 @@ async def main():
             raise SystemExit(f"mock LLM exited immediately — port {MOCK_PORT} already in use?")
 
         app, app_log = start_app(app_dir, {
-            "CHARACTERSCHOOL_HOST": "127.0.0.1",
-            "CHARACTERSCHOOL_PORT": str(APP_PORT),
-            "CHARACTERSCHOOL_CHAT_BASE_URL": f"http://127.0.0.1:{MOCK_PORT}/v1",
-            "CHARACTERSCHOOL_CHAT_API_KEY": "test-key",
-            "CHARACTERSCHOOL_CHAT_MODEL": "mock-model",
-            "CHARACTERSCHOOL_ANALYSIS_BASE_URL": f"http://127.0.0.1:{MOCK_PORT}/v1",
-            "CHARACTERSCHOOL_ANALYSIS_API_KEY": "test-key",
-            "CHARACTERSCHOOL_ANALYSIS_MODEL": "mock-model",
-            "CHARACTERSCHOOL_SUMMARY_BASE_URL": f"http://127.0.0.1:{MOCK_PORT}/v1",
-            "CHARACTERSCHOOL_SUMMARY_API_KEY": "test-key",
-            "CHARACTERSCHOOL_SUMMARY_MODEL": "mock-model",
+            "KEDAIKOPI_HOST": "127.0.0.1",
+            "KEDAIKOPI_PORT": str(APP_PORT),
+            "KEDAIKOPI_CHAT_BASE_URL": f"http://127.0.0.1:{MOCK_PORT}/v1",
+            "KEDAIKOPI_CHAT_API_KEY": "test-key",
+            "KEDAIKOPI_CHAT_MODEL": "mock-model",
+            "KEDAIKOPI_ANALYSIS_BASE_URL": f"http://127.0.0.1:{MOCK_PORT}/v1",
+            "KEDAIKOPI_ANALYSIS_API_KEY": "test-key",
+            "KEDAIKOPI_ANALYSIS_MODEL": "mock-model",
+            "KEDAIKOPI_SUMMARY_BASE_URL": f"http://127.0.0.1:{MOCK_PORT}/v1",
+            "KEDAIKOPI_SUMMARY_API_KEY": "test-key",
+            "KEDAIKOPI_SUMMARY_MODEL": "mock-model",
         }, tmp / "app.log")
         if not wait_http(f"http://127.0.0.1:{APP_PORT}/api/cards"):
             raise SystemExit("app never came up\n" + (tmp / "app.log").read_text())
         if app.poll() is not None:
             raise SystemExit(f"app exited immediately — port {APP_PORT} already in use?")
 
-        ws_uri = f"ws://127.0.0.1:{APP_PORT}"
-        await scenario_a_school(ws_uri + "/ws/chat", card_name)
-        await scenario_b_rp(ws_uri + "/ws/rp", card_name)
-        await scenario_c_auto_continue(ws_uri + "/ws/chat", card_name)
-        await scenario_e_style_cap(ws_uri + "/ws/chat", card_name)
+        ws_uri = f"ws://127.0.0.1:{APP_PORT}/ws/rp"
+        await scenario_a_rp(ws_uri)
+        await scenario_b_rp(ws_uri, card_name)
+        await scenario_c_auto_continue(ws_uri)
+        await scenario_e_style_cap(ws_uri)
 
-        # Swap the mock for one that refuses streaming, then re-run scenario A
+        # Swap the mock for one that refuses streaming, then re-run D
         mock.terminate()
         mock.wait(timeout=10)
         mock = subprocess.Popen(
@@ -336,7 +338,7 @@ async def main():
         if mock.poll() is not None:
             raise SystemExit("rejecting mock exited immediately — port taken?")
         await asyncio.sleep(1)
-        await scenario_d_fallback(ws_uri + "/ws/chat", card_name)
+        await scenario_d_fallback(ws_uri)
     finally:
         if app:
             app.terminate()

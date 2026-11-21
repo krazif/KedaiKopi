@@ -1,5 +1,5 @@
 """
-Character School — RP mode routes + WebSocket + config API.
+KedaiKopi — RP routes + WebSocket + config API.
 Split from server.py.
 """
 import asyncio
@@ -522,8 +522,7 @@ async def ws_rp(ws: WebSocket):
                                 })
                             all_msgs_for_img = db.db_rp_get_messages(session_id)
                             await imagegen.maybe_auto_generate_image(
-                                session_id, all_msgs_for_img, _safe_send, mode="rp",
-                                image_add_fn=_rp_auto_img_add,
+                                session_id, all_msgs_for_img, _safe_send,                                 image_add_fn=_rp_auto_img_add,
                             )
 
                     except asyncio.CancelledError:
@@ -700,8 +699,7 @@ async def ws_rp(ws: WebSocket):
                                     })
                                 _all_msgs_img = db.db_rp_get_messages(session_id)
                                 await imagegen.maybe_auto_generate_image(
-                                    session_id, _all_msgs_img, _safe_send, mode="rp",
-                                    image_add_fn=_rp_regen_img_add,
+                                    session_id, _all_msgs_img, _safe_send,                                     image_add_fn=_rp_regen_img_add,
                                 )
 
                         except asyncio.CancelledError:
@@ -1019,7 +1017,7 @@ async def get_config():
         return key[:4] + "…" + key[-4:]
     return {
         "version": db.APP_VERSION,
-        "server": _c.get("server", {"host": "0.0.0.0", "port": 7862}),
+        "server": _c.get("server", {"host": "0.0.0.0", "port": 7864}),
         "chat": {
             "base_url": _c.get("chat", {}).get("base_url", ""),
             "api_key": mask(_c.get("chat", {}).get("api_key")),
@@ -1187,10 +1185,8 @@ async def reset_database():
         conn.execute("DELETE FROM rp_messages")
         conn.execute("DELETE FROM rp_characters")
         conn.execute("DELETE FROM rp_sessions")
-        conn.execute("DELETE FROM school_messages")
-        conn.execute("DELETE FROM school_sessions")
         # Reset auto-increment counters
-        conn.execute("DELETE FROM sqlite_sequence WHERE name IN ('sessions','messages','rp_sessions','rp_characters','rp_messages','school_sessions','school_messages')")
+        conn.execute("DELETE FROM sqlite_sequence WHERE name IN ('rp_sessions','rp_characters','rp_messages')")
         conn.commit()
         conn.execute("VACUUM")
         conn.commit()
@@ -1316,14 +1312,6 @@ async def api_set_session_lorebooks(session_id: int, req: Request):
     body = await req.json()
     filenames = body.get("lorebooks", [])
     db.db_rp_update_settings(session_id, lorebooks=json.dumps(filenames))
-    return JSONResponse({"status": "ok"})
-
-@router.put("/api/school/sessions/{session_id}/lorebooks")
-async def api_set_school_session_lorebooks(session_id: int, req: Request):
-    """Set which lorebooks are active for a school session."""
-    body = await req.json()
-    filenames = body.get("lorebooks", [])
-    db.db_school_update_settings(session_id, lorebooks=json.dumps(filenames))
     return JSONResponse({"status": "ok"})
 
 

@@ -1,18 +1,15 @@
-// Character School — imagegen.js
+// KedaiKopi — imagegen.js
 // Scene generation modal, ComfyUI integration, image gallery.
 
-let genSceneMode = 'rp'; // 'rp' or 'school'
 let lastGenSceneClientId = null; // track last inserted image msg for regenerate
 let genSceneHistory = []; // {image_path, seed, prompt} entries
 let lastPreviewedImage = null; // {filename, prompt, seed} — currently previewed image for Insert to Chat
 
-function openGenerateSceneModal(mode) {
-  genSceneMode = mode || 'rp';
+function openGenerateSceneModal() {
   lastGenSceneClientId = null;
   genSceneHistory = [];
   const overlay = document.getElementById('genSceneOverlay');
   overlay.style.display = 'flex';
-  document.getElementById('genSceneModeLabel').textContent = genSceneMode === 'school' ? 'School Mode' : 'RP Mode';
   document.getElementById('genSceneStatus').textContent = '';
   document.getElementById('genScenePreviewWrap').style.display = 'none';
   document.getElementById('genSceneHistoryWrap').style.display = 'none';
@@ -141,7 +138,7 @@ function renderGenSceneHistory() {
     return;
   }
   wrap.style.display = 'block';
-  const apiBase = genSceneMode === 'school' ? '/api/school/images/' : '/api/rp/images/';
+  const apiBase = '/api/rp/images/';
   container.innerHTML = '';
   genSceneHistory.forEach((entry, i) => {
     const thumb = document.createElement('div');
@@ -195,7 +192,7 @@ function renderImageGallery() {
   const container = document.getElementById('genSceneGallery');
   const countEl = document.getElementById('genSceneGalleryCount');
   if (!container) return;
-  const apiBase = genSceneMode === 'school' ? '/api/school/images/' : '/api/rp/images/';
+  const apiBase = '/api/rp/images/';
 
   if (galleryImages.length === 0) {
     container.innerHTML = '<div style="text-align:center;color:var(--text-dim);font-size:12px;padding:20px">No images uploaded yet</div>';
@@ -305,7 +302,7 @@ function renderImageGallery() {
 
 function autoFillGenScenePrompt() {
   let prompt = '';
-  const lastMsgs = genSceneMode === 'school' ? schoolMessages : rpMessages;
+  const lastMsgs = rpMessages;
   // Find last non-empty message content for scene context
   let lastContent = '';
   for (let i = lastMsgs.length - 1; i >= 0; i--) {
@@ -315,32 +312,21 @@ function autoFillGenScenePrompt() {
     }
   }
   // Extract appearance/description from character cards
-  if (genSceneMode === 'school') {
-    const d = currentCard?.data || currentCard;
-    const charName = d?.name || 'Character';
-    const desc = d?.description || '';
-    prompt = `Scene featuring ${charName}`;
-    if (desc) {
-      // Extract first 200 chars of description for appearance hints
-      prompt += `. ${desc.substring(0, 200)}`;
-    }
-  } else {
-    // RP mode: use last speaker's character data
-    const lastSpeaker = lastMsgs.length > 0 ? lastMsgs[lastMsgs.length - 1].speaker : null;
-    if (lastSpeaker && rpCharacters.length > 0) {
-      const char = rpCharacters.find(c => c.name === lastSpeaker);
-      if (char) {
-        prompt = `Scene featuring ${lastSpeaker}`;
-        // We don't have full card data in rpCharacters, just name+filename
-        // Use the last message content as scene context
-      } else {
-        prompt = `Scene featuring ${lastSpeaker || 'characters'}`;
-      }
-    } else if (rpCharacters.length > 0) {
-      prompt = `Scene featuring ${rpCharacters.map(c => c.name).join(', ')}`;
+  // RP mode: use last speaker's character data
+  const lastSpeaker = lastMsgs.length > 0 ? lastMsgs[lastMsgs.length - 1].speaker : null;
+  if (lastSpeaker && rpCharacters.length > 0) {
+    const char = rpCharacters.find(c => c.name === lastSpeaker);
+    if (char) {
+      prompt = `Scene featuring ${lastSpeaker}`;
+      // We don't have full card data in rpCharacters, just name+filename
+      // Use the last message content as scene context
     } else {
-      prompt = 'Scene';
+      prompt = `Scene featuring ${lastSpeaker || 'characters'}`;
     }
+  } else if (rpCharacters.length > 0) {
+    prompt = `Scene featuring ${rpCharacters.map(c => c.name).join(', ')}`;
+  } else {
+    prompt = 'Scene';
   }
   // Append scene context from last message (truncated)
   if (lastContent) {
@@ -354,7 +340,7 @@ function autoFillGenScenePrompt() {
 async function doAutogenPrompt() {
   const statusEl = document.getElementById('genSceneStatus');
   const btn = document.getElementById('genSceneAutogenBtn');
-  const lastMsgs = genSceneMode === 'school' ? schoolMessages : rpMessages;
+  const lastMsgs = rpMessages;
   const recent = lastMsgs.slice(-3).map(m => ({
     role: m.role || m.speaker || 'user',
     speaker: m.speaker || m.name || '',
@@ -421,7 +407,7 @@ async function doGenerateScene() {
     showGenSceneSeed(j.seed);
     pushGenSceneHistory(j.image_path, j.seed, promptText);
     // Show preview
-    const apiBase = genSceneMode === 'school' ? '/api/school/images/' : '/api/rp/images/';
+    const apiBase = '/api/rp/images/';
     const preview = document.getElementById('genScenePreview');
     preview.src = apiBase + encodeURIComponent(j.image_path);
     document.getElementById('genScenePreviewWrap').style.display = 'block';
@@ -491,7 +477,7 @@ async function doRegenerateScene() {
     showGenSceneSeed(j.seed);
     pushGenSceneHistory(j.image_path, j.seed, promptText);
     // Show preview
-    const apiBase = genSceneMode === 'school' ? '/api/school/images/' : '/api/rp/images/';
+    const apiBase = '/api/rp/images/';
     const preview = document.getElementById('genScenePreview');
     preview.src = apiBase + encodeURIComponent(j.image_path);
     document.getElementById('genScenePreviewWrap').style.display = 'block';
@@ -515,20 +501,11 @@ function insertPreviewedToChat() {
   const { filename, prompt, seed } = lastPreviewedImage;
   const promptText = prompt || '';
 
-  if (genSceneMode === 'school') {
-    const clientId = 'gen_' + (++_clientMsgCounter) + '_' + Date.now();
-    lastGenSceneClientId = clientId;
-    addMessage('user', '', null, false, null, clientId, filename, promptText);
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'user_message', content: '', client_msg_id: clientId, image_path: filename, image_prompt: promptText, seed: seed }));
-    }
-  } else {
-    const clientId = 'gen_' + (++_clientMsgCounter) + '_' + Date.now();
-    lastGenSceneClientId = clientId;
-    addRPMessage('user', '', null, null, clientId, filename, promptText);
-    if (rpWS && rpWS.readyState === WebSocket.OPEN) {
-      rpWS.send(JSON.stringify({ type: 'user_message', content: '', directed_to: null, client_msg_id: clientId, image_path: filename, image_prompt: promptText, seed: seed }));
-    }
+  const clientId = 'gen_' + (++_clientMsgCounter) + '_' + Date.now();
+  lastGenSceneClientId = clientId;
+  addRPMessage('user', '', null, null, clientId, filename, promptText);
+  if (rpWS && rpWS.readyState === WebSocket.OPEN) {
+    rpWS.send(JSON.stringify({ type: 'user_message', content: '', directed_to: null, client_msg_id: clientId, image_path: filename, image_prompt: promptText, seed: seed }));
   }
 
   // Update preview to confirm insertion
@@ -578,7 +555,7 @@ async function sendPreviewedToBackground() {
 
 // ── Gallery thumbnail click: fill fields + show preview ──
 function previewGalleryImage(img) {
-  const apiBase = genSceneMode === 'school' ? '/api/school/images/' : '/api/rp/images/';
+  const apiBase = '/api/rp/images/';
 
   // Fill prompt field if available
   if (img.prompt) {
@@ -611,4 +588,3 @@ function previewGalleryImage(img) {
 
 // ─── Boot (runs after all scripts loaded) ───────
 loadCardList();
-loadSchoolSessions();

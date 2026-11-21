@@ -1,4 +1,4 @@
-// Character School — settings.js
+// KedaiKopi — settings.js
 // Settings modal, endpoint presets, ComfyUI workflow presets.
 
 // ─── Settings Modal ──────────────────────────────────────────────
@@ -7,7 +7,7 @@ async function openSettings() {
     const res = await fetch('/api/config');
     const cfg = await res.json();
     document.getElementById('cfgServerHost').value = cfg.server.host || '0.0.0.0';
-    document.getElementById('cfgServerPort').value = cfg.server.port || 7862;
+    document.getElementById('cfgServerPort').value = cfg.server.port || 7864;
     document.getElementById('cfgChatBaseUrl').value = cfg.chat.base_url || '';
     document.getElementById('cfgChatApiKey').value = cfg.chat.api_key || '';
     document.getElementById('cfgChatModel').value = cfg.chat.model || '';
@@ -57,7 +57,7 @@ async function openSettings() {
     document.getElementById('cfgImgAutoInterval').value = iga.interval || 5;
     document.getElementById('cfgImgAutoNegative').value = iga.negative_prompt || '';
     if (cfg.version) {
-      document.getElementById('settingsFooter').textContent = `Character School v${cfg.version} © Krazif & Tunas`;
+      document.getElementById('settingsFooter').textContent = `KedaiKopi v${cfg.version} © Razif`;
     }
     document.getElementById('cfgBgOverlay').addEventListener('input', liveApplyAppearance);
     // BG panel upload + URL listeners
@@ -94,7 +94,7 @@ async function saveSettings() {
     const payload = {
       server: {
         host: document.getElementById('cfgServerHost').value.trim(),
-        port: parseInt(document.getElementById('cfgServerPort').value) || 7862,
+        port: parseInt(document.getElementById('cfgServerPort').value) || 7864,
       },
       chat: {
         base_url: document.getElementById('cfgChatBaseUrl').value.trim(),

@@ -1,4 +1,4 @@
-"""Character School — main entry point."""
+"""KedaiKopi — main entry point."""
 import os
 import json
 import uuid
@@ -8,14 +8,14 @@ from fastapi import FastAPI, UploadFile, File
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 import db
-from school import router as school_router
 from rp import router as rp_router
 from imagegen import router as imagegen_router
+from library import router as library_router
 
 ALLOWED_BG_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
 MAX_BG_SIZE = 10 * 1024 * 1024  # 10 MB
 
-app = FastAPI(title="Character School")
+app = FastAPI(title="KedaiKopi")
 
 
 @app.get("/")
@@ -148,9 +148,9 @@ async def api_delete_image(filename: str):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
-app.include_router(school_router)
 app.include_router(rp_router)
 app.include_router(imagegen_router)
+app.include_router(library_router)
 
 if db.STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(db.STATIC_DIR)), name="static")
@@ -159,6 +159,6 @@ if db.STATIC_DIR.exists():
 if __name__ == "__main__":
     import uvicorn
     _srv = db._cfg.get("server", {})
-    _host = os.environ.get("CHARACTERSCHOOL_HOST", _srv.get("host", "0.0.0.0"))
-    _port = int(os.environ.get("CHARACTERSCHOOL_PORT", _srv.get("port", 7862)))
+    _host = os.environ.get("KEDAIKOPI_HOST", _srv.get("host", "0.0.0.0"))
+    _port = int(os.environ.get("KEDAIKOPI_PORT", _srv.get("port", 7864)))
     uvicorn.run(app, host=_host, port=_port, ws_max_size=16 * 1024 * 1024)  # 16MB WS limit

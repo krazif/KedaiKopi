@@ -1,8 +1,7 @@
-// Character School — core.js
+// KedaiKopi — core.js
 // Core state, card version helpers, console, token estimation.
 
 // ─── State ──────────────────────────────────────
-let ws = null;
 let currentCard = null;
 let currentFilename = null;
 let currentPersona = null;
@@ -12,15 +11,9 @@ let editorTab = 'core';
 let editorVersion = 2;
 let editorNormalized = null;
 let editorOriginal = null;
-// School session state
-let schoolActiveSessionId = null;
-let schoolStackConfig = null;
-let schoolConsoleEvents = [];
-let schoolSystemPrompt = '';  // system prompt text from server for token estimation
-// Active stack builder context (shared between School and RP modes)
+// Active stack builder context
 let activeStackConfig = null;
 let activeStackWS = null;
-let activeStackMode = 'rp';  // 'rp' or 'school'
 
 // ─── Card Version Support (V1/V2/V3) ──────────────
 const V3_ALIASES = { first_mes: 'first_message', mes_example: 'message_examples' };
@@ -78,8 +71,7 @@ let personaEditorData = null;
 let personaEditorFilename = null;
 let consoleOpen = false;
 let consoleMaximized = false;
-let consoleEventCount = 0;
-let consoleLimit = parseInt(localStorage.getItem('cs_console_limit')); // 0 = unlimited; shared across School + RP consoles
+let consoleLimit = parseInt(localStorage.getItem('cs_console_limit')); // 0 = unlimited
 if (isNaN(consoleLimit)) consoleLimit = 300; // sensible default so consoles don't grow without bound
 
 // Restore console limit inputs on load
@@ -111,11 +103,7 @@ function trimConsoleEntries(inner) {
     for (let i = 0; i < excess; i++) entries[i].remove();
     // Update count badges to reflect actual visible entries
     const visible = inner.querySelectorAll('.console-entry').length;
-    if (inner.id === 'consoleInner') {
-      consoleEventCount = visible;
-      const el = document.getElementById('consoleCount');
-      if (el) el.textContent = consoleEventCount;
-    } else if (inner.id === 'rpConsoleInner') {
+    if (inner.id === 'rpConsoleInner') {
       rpConsoleEvents = visible;
       const el = document.getElementById('rpConsoleCount');
       if (el) el.textContent = rpConsoleEvents;
@@ -126,8 +114,7 @@ function trimConsoleEntries(inner) {
 // ─── Console ────────────────────────────────────
 function toggleConsole() {
   consoleOpen = !consoleOpen;
-  // Handle both school and RP console panels
-  const panels = document.querySelectorAll('#consolePanel, #rpConsolePanel');
+  const panels = document.querySelectorAll('#rpConsolePanel');
   const chevrons = document.querySelectorAll('#consoleChevron, #rpConsoleChevron');
   panels.forEach(p => {
     if (consoleOpen) { p.classList.add('open'); } else { p.classList.remove('open'); }
@@ -177,7 +164,7 @@ function estimateTokens(messages) {
 
 function getSessionMessages() {
   // Extract messages from the virtual scrolling arrays (not DOM, since not all are rendered)
-  const messages = activeStackMode === 'rp' ? rpMessages : schoolMessages;
+  const messages = rpMessages;
   return messages.map(m => ({ content: m.content }));
 }
 
@@ -185,7 +172,7 @@ function estimateBlockTokens(block, allMsgs) {
   const btype = block.type;
   if (btype === 'system') {
     // System prompt is built server-side; use the stored text from session payload
-    const cfg = (activeStackMode === 'school') ? schoolStackConfig : rpStackConfig;
+    const cfg = rpStackConfig;
     const text = (cfg && cfg._systemPromptText) ? cfg._systemPromptText : '';
     return { summary: text ? Math.ceil(text.length / 4) + 4 : 0, raw: 0 };
   }
@@ -225,80 +212,3 @@ function formatTokens(n) {
   if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
   return String(n);
 }
-
-function addConsoleEntry(data) {
-  const inner = document.getElementById('consoleInner');
-  // Remove empty placeholder
-  const empty = inner.querySelector('.console-empty');
-  if (empty) empty.remove();
-
-  consoleEventCount++;
-  document.getElementById('consoleCount').textContent = consoleEventCount;
-
-  const isReq = data.event === 'request';
-  const isResp = data.event === 'response';
-  const isErr = data.event === 'error';
-  const isKwargs = data.event === 'request_kwargs';
-
-  // Update token estimate in console title bar
-  if (isReq && data.token_estimate !== undefined) {
-    const el = document.getElementById('consoleTokEst');
-    if (el) el.textContent = '~' + data.token_estimate + ' tok';
-  }
-  if (isResp && data.usage && data.usage.prompt_tokens !== undefined) {
-    const el = document.getElementById('consoleTokEst');
-    if (el) el.textContent = data.usage.prompt_tokens + ' tok';
-  }
-  const tagClass = isReq ? 'console-tag-req' : isResp ? 'console-tag-resp' : isErr ? 'console-tag-err' : 'console-tag-req';
-  const tagLabel = isReq ? '→ REQ' : isResp ? '← RESP' : isErr ? '✕ ERR' : '→ KWARGS';
-  const llmClass = data.llm === 'character' ? 'console-llm-char' : 'console-llm-analysis';
-  const llmLabel = data.llm === 'character' ? 'CHARACTER' : 'ANALYSIS';
-
-  let html = `<div class="console-entry">`;
-  html += `<span class="ts">${escapeHtml(data.timestamp || '')}</span>`;
-  if (data.label) {
-    html += ` <span style="color:var(--yellow);font-size:11px;font-weight:600">[${escapeHtml(data.label)}]</span>`;
-  }
-  html += ` <span class="tag ${tagClass}">${tagLabel}</span>`;
-  html += ` <span class="${llmClass}">${llmLabel}</span>`;
-  if (data.model) html += ` <span class="model">${escapeHtml(data.model)}</span>`;
-  if (data.temperature !== undefined) html += ` <span class="model">temp=${data.temperature}</span>`;
-  if (data.max_tokens) html += ` <span class="model">max=${data.max_tokens}</span>`;
-  html += `<br>`;
-
-  if (isReq && data.messages) {
-    const estTokens = estimateTokens(data.messages);
-     // (live token counter moved to prompt stack builder footer)
-     html += `<div style="margin:4px 0">`;
-     data.messages.forEach(m => {
-      const role = m.role || '?';
-      let content = m.content || '';
-      html += `<div class="msg-content ${role}"><span class="msg-role">${escapeHtml(role)}</span>: ${escapeHtml(content)}</div>`;
-    });
-    html += `</div>`;
-  } else if (isResp && data.content) {
-    let content = data.content;
-    html += `<div class="msg-content assistant">${escapeHtml(content)}</div>`;
-  } else if (isErr) {
-    html += `<div class="msg-content" style="border-left-color:var(--red);color:var(--red)">${escapeHtml(data.message || data.content || '')}</div>`;
-  } else if (isKwargs && data.kwargs) {
-    html += `<pre style="margin:4px 0;font-size:11px;color:var(--text-dim);white-space:pre-wrap;word-break:break-all">${escapeHtml(JSON.stringify(data.kwargs, null, 2))}</pre>`;
-  }
-
-  if (isResp && data.usage) {
-    const u = data.usage;
-    html += `<span class="usage">📊 tokens: prompt=${u.prompt_tokens || '?'} completion=${u.completion_tokens || '?'} total=${u.total_tokens || '?'}</span>`;
-    if (data.finish_reason) html += ` <span class="usage">finish: ${escapeHtml(data.finish_reason)}</span>`;
-    html += `<br>`;
-  }
-
-  html += `</div>`;
-  inner.insertAdjacentHTML('beforeend', html);
-  trimConsoleEntries(inner);
-
-  // Auto-scroll to bottom if console is open
-  if (consoleOpen) {
-    inner.scrollTop = inner.scrollHeight;
-  }
-}
-
