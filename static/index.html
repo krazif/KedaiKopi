@@ -35,6 +35,9 @@ header .status.connected { color:var(--green); }
 .card-item:hover { background:var(--surface2); }
 .card-item.active { background:var(--surface2); border-left:3px solid var(--accent); }
 .card-item .name { font-weight:500; font-size:13px; }
+/* Filename under a character name — disambiguates equal display names */
+.file-sub { font-size:10px; color:var(--text-dim); margin-top:1px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.name-col { display:flex; flex-direction:column; min-width:0; }
 .card-version { display:inline-block; padding:1px 5px; border-radius:3px; font-size:9px; font-weight:600; font-family:monospace; margin-left:4px; vertical-align:middle; }
 .card-version.v1 { background:#4a6fa5; color:white; }
 .card-version.v2 { background:#5b8c5a; color:white; }

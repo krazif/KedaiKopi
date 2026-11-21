@@ -42,7 +42,7 @@ async function openRPSetup() {
     const tags = (c.tags || []).slice(0, 3).map(t => `<span class="tags">${escapeHtml(t)}</span>`).join(' ');
     return `<div class="rp-char-pick-item" data-filename="${escapeHtml(c.filename)}" onclick="toggleRPCharPick('${escapeHtml(c.filename)}', this)">
       <div class="checkbox"></div>
-      <div class="name">${escapeHtml(c.name)}</div>
+      <div class="name-col"><div class="name">${escapeHtml(c.name)}</div><div class="file-sub">${escapeHtml(c.filename)}</div></div>
       <div class="tags">${tags}</div>
     </div>`;
   }).join('');

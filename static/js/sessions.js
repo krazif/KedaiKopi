@@ -103,10 +103,12 @@ async function loadRPSessions() {
       const active = s.id === rpActiveSessionId ? ' active' : '';
       const date = s.updated_at ? new Date(s.updated_at + 'Z').toLocaleDateString() : '';
       const style = rpStyleLabels[s.response_style] || 'Moderate';
+      const files = (s.characters || []).map(c => c.filename).join(', ');
       return `<div class="rp-session-item${active}" data-session-id="${s.id}" onclick="resumeRPSession(${s.id})">
         <span class="del-btn" onclick="event.stopPropagation(); deleteRPSession(${s.id})">✕</span>
         <span class="fork-btn" onclick="event.stopPropagation(); forkRPSession(${s.id})" title="Fork this session">🧬</span>
         <div class="title">${escapeHtml(s.title || 'Untitled')}</div>
+        ${files ? `<div class="file-sub" title="${escapeHtml(files)}">${escapeHtml(files)}</div>` : ''}
         <div class="meta">${style} · ${date}</div>
       </div>`;
     }).join('');
@@ -174,7 +176,7 @@ async function openRPAddCharPicker() {
   picker.innerHTML = available.map(c => {
     const tags = (c.tags || []).slice(0, 3).map(t => `<span class="tags">${escapeHtml(t)}</span>`).join(' ');
     return `<div class="rp-add-char-item" onclick="addRPChar('${escapeHtml(c.filename)}')">
-      <span class="name">${escapeHtml(c.name)}</span>
+      <span class="name-col"><span class="name">${escapeHtml(c.name)}</span><span class="file-sub">${escapeHtml(c.filename)}</span></span>
       <span class="tags">${tags}</span>
     </div>`;
   }).join('');

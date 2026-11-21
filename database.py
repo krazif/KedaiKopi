@@ -494,9 +494,19 @@ def db_rp_list_sessions() -> list[dict]:
     rows = conn.execute(
         "SELECT id, title, persona_filename, turn_routing, response_style, updated_at FROM rp_sessions ORDER BY updated_at DESC",
     ).fetchall()
+    # Characters per session — the sidebar shows their filenames (two cards
+    # can share a display name, e.g. sha.json vs Sha_II.json both "Sha").
+    char_rows = conn.execute(
+        "SELECT session_id, card_filename, char_name FROM rp_characters "
+        "ORDER BY session_id, display_order, id",
+    ).fetchall()
     conn.close()
+    chars_by_session: dict = {}
+    for sid, fn, nm in char_rows:
+        chars_by_session.setdefault(sid, []).append({"filename": fn, "name": nm})
     return [{"id": r[0], "title": r[1], "persona_filename": r[2],
-             "turn_routing": r[3], "response_style": r[4], "updated_at": r[5]} for r in rows]
+             "turn_routing": r[3], "response_style": r[4], "updated_at": r[5],
+             "characters": chars_by_session.get(r[0], [])} for r in rows]
 
 
 def db_rp_delete_session(session_id: int) -> bool:
