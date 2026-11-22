@@ -210,15 +210,17 @@ _REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh", "max"
 def build_extra_body(model: str, enable_thinking: bool,
                      venice: Optional[bool] = None,
                      venice_parameters: Optional[dict] = None,
-                     reasoning_effort: Optional[str] = None) -> dict:
+                     reasoning_effort: Optional[str] = None,
+                     venice_system_prompt: Optional[bool] = None) -> dict:
     """Build the extra_body for LLM calls, branching on provider/model.
 
     Venice AI (api.venice.ai): its ChatCompletionRequest is
     additionalProperties:false — a top-level `enable_thinking` is rejected
     with 400 "Invalid request parameters" (probed live 2026-11-21). With
     venice=True the body carries `venice_parameters` instead:
-      - include_venice_system_prompt: False — our prompts are hand-built;
-        Venice's own default preamble is not appended
+      - include_venice_system_prompt: from the chat tick (default False) —
+        our prompts are hand-built; off means Venice's own default
+        preamble is not appended to them
       - strip_thinking_response: True — reasoning blocks stay out of the
         reply text (no-op on non-thinking models)
       - disable_thinking: True — only when thinking is switched OFF here
@@ -245,11 +247,13 @@ def build_extra_body(model: str, enable_thinking: bool,
             venice_parameters = getattr(db, "CHAT_VENICE_PARAMETERS", {}) or {}
         if reasoning_effort is None:
             reasoning_effort = getattr(db, "CHAT_REASONING_EFFORT", "")
+        if venice_system_prompt is None:
+            venice_system_prompt = getattr(db, "CHAT_VENICE_SYSTEM_PROMPT", False)
     if venice:
         # The explicit tick wins over the model-family branch: if the
         # endpoint is Venice, only Venice-accepted fields may be sent.
         vp = {
-            "include_venice_system_prompt": False,
+            "include_venice_system_prompt": bool(venice_system_prompt),
             "strip_thinking_response": True,
         }
         extra = {"venice_parameters": vp}

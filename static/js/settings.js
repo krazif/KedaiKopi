@@ -18,6 +18,7 @@ async function openSettings() {
     document.getElementById('cfgChatEnableThinking').checked = cfg.chat.enable_thinking ?? false;
     document.getElementById('cfgChatVenice').checked = cfg.chat.venice ?? false;
     document.getElementById('cfgChatReasoningEffort').value = cfg.chat.reasoning_effort || 'auto';
+    document.getElementById('cfgChatVeniceSysPrompt').checked = cfg.chat.venice_system_prompt ?? false;
     onCfgChatVeniceToggle();
     document.getElementById('cfgAnalysisBaseUrl').value = cfg.analysis.base_url || '';
     document.getElementById('cfgAnalysisApiKey').value = cfg.analysis.api_key || '';
@@ -90,9 +91,13 @@ function closeSettings() {
 }
 
 function onCfgChatVeniceToggle() {
-  // The effort control is a Venice-only request parameter (reasoning.effort)
-  const row = document.getElementById('cfgChatReasoningRow');
-  if (row) row.style.display = document.getElementById('cfgChatVenice').checked ? '' : 'none';
+  // These two are Venice-only request parameters (reasoning.effort and
+  // venice_parameters.include_venice_system_prompt) — hidden off-mode.
+  const show = document.getElementById('cfgChatVenice').checked ? '' : 'none';
+  for (const id of ['cfgChatReasoningRow', 'cfgChatVeniceSysRow']) {
+    const row = document.getElementById(id);
+    if (row) row.style.display = show;
+  }
 }
 
 async function saveSettings() {
@@ -116,6 +121,7 @@ async function saveSettings() {
         enable_thinking: document.getElementById('cfgChatEnableThinking').checked,
         venice: document.getElementById('cfgChatVenice').checked,
         reasoning_effort: document.getElementById('cfgChatReasoningEffort').value || 'auto',
+        venice_system_prompt: document.getElementById('cfgChatVeniceSysPrompt').checked,
       },
       analysis: {
         base_url: document.getElementById('cfgAnalysisBaseUrl').value.trim(),

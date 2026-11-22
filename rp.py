@@ -1029,6 +1029,7 @@ async def get_config():
             "enable_thinking": _c.get("chat", {}).get("enable_thinking", False),
             "venice": _c.get("chat", {}).get("venice", False),
             "reasoning_effort": _c.get("chat", {}).get("reasoning_effort", "auto"),
+            "venice_system_prompt": _c.get("chat", {}).get("venice_system_prompt", False),
         },
         "analysis": {
             "base_url": _c.get("analysis", {}).get("base_url", ""),

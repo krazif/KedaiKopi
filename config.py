@@ -121,6 +121,7 @@ def save_config(cfg: dict):
     lines.append(f'    "top_k": {_json_val(chat.get("top_k"))},')
     lines.append(f'    "enable_thinking": {"true" if chat.get("enable_thinking", False) else "false"},')
     lines.append(f'    "venice": {"true" if chat.get("venice", False) else "false"},')
+    lines.append(f'    "venice_system_prompt": {"true" if chat.get("venice_system_prompt", False) else "false"},')
     lines.append('    "venice_parameters": ' + json.dumps(chat.get("venice_parameters") or {}) + ',')
     lines.append('    "reasoning_effort": ' + json.dumps(str(chat.get("reasoning_effort", "auto"))))
     lines.append('  },')
@@ -215,7 +216,7 @@ def save_config(cfg: dict):
 
 def reload_config():
     """Reload config from disk and update all globals + LLM clients."""
-    global _cfg, CHAT_BASE_URL, CHAT_API_KEY, CHAT_MODEL, CHAT_TEMPERATURE, CHAT_MAX_TOKENS, CHAT_ENABLE_THINKING, CHAT_TOP_P, CHAT_TOP_K, CHAT_VENICE, CHAT_VENICE_PARAMETERS, CHAT_REASONING_EFFORT
+    global _cfg, CHAT_BASE_URL, CHAT_API_KEY, CHAT_MODEL, CHAT_TEMPERATURE, CHAT_MAX_TOKENS, CHAT_ENABLE_THINKING, CHAT_TOP_P, CHAT_TOP_K, CHAT_VENICE, CHAT_VENICE_PARAMETERS, CHAT_REASONING_EFFORT, CHAT_VENICE_SYSTEM_PROMPT
     global ANALYSIS_BASE_URL, ANALYSIS_API_KEY, ANALYSIS_MODEL, ANALYSIS_TEMPERATURE, ANALYSIS_MAX_TOKENS, ANALYSIS_TOP_P, ANALYSIS_TOP_K
     global SUMMARY_BASE_URL, SUMMARY_API_KEY, SUMMARY_MODEL, SUMMARY_TEMPERATURE, SUMMARY_MAX_TOKENS, SUMMARY_TOP_P, SUMMARY_TOP_K
     global chat_client, analysis_client, summary_client, CHARACTERS_DIR, PERSONAS_DIR, PRESETS
@@ -244,6 +245,7 @@ def reload_config():
     CHAT_VENICE = bool(_chat_cfg.get("venice", False))
     CHAT_VENICE_PARAMETERS = _chat_cfg.get("venice_parameters") or {}
     CHAT_REASONING_EFFORT = str(_chat_cfg.get("reasoning_effort") or "auto").strip().lower()
+    CHAT_VENICE_SYSTEM_PROMPT = bool(_chat_cfg.get("venice_system_prompt", False))
     CHAT_TOP_P = _normalize_float(_chat_cfg.get("top_p"))
     CHAT_TOP_K = _normalize_int(_chat_cfg.get("top_k"))
     ANALYSIS_BASE_URL    = os.environ.get("KEDAIKOPI_ANALYSIS_BASE_URL",    _analysis_cfg.get("base_url", "https://openrouter.ai/api/v1"))
@@ -337,6 +339,7 @@ CHAT_ENABLE_THINKING = _chat_cfg.get("enable_thinking", False)
 CHAT_VENICE = bool(_chat_cfg.get("venice", False))
 CHAT_VENICE_PARAMETERS = _chat_cfg.get("venice_parameters") or {}
 CHAT_REASONING_EFFORT = str(_chat_cfg.get("reasoning_effort") or "auto").strip().lower()
+CHAT_VENICE_SYSTEM_PROMPT = bool(_chat_cfg.get("venice_system_prompt", False))
 CHAT_TOP_P = _normalize_float(_chat_cfg.get("top_p"))
 CHAT_TOP_K = _normalize_int(_chat_cfg.get("top_k"))
 

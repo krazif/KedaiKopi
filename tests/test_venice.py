@@ -13,7 +13,8 @@ import engine
 class TestVeniceExtraBody(unittest.TestCase):
     def test_venice_replaces_enable_thinking(self):
         # The live-probed 400 case: {"enable_thinking": true} must not appear.
-        eb = engine.build_extra_body("glm-5-3-flash-uncensored", True, venice=True)
+        eb = engine.build_extra_body("glm-5-3-flash-uncensored", True, venice=True,
+                                     venice_system_prompt=False)
         self.assertNotIn("enable_thinking", eb)
         self.assertNotIn("reasoning_effort", eb)
         vp = eb["venice_parameters"]
@@ -118,6 +119,34 @@ class TestVeniceReasoningControls(unittest.TestCase):
                                      venice_parameters={},
                                      reasoning_effort="medium")
         self.assertEqual(eb["reasoning"], {"effort": "medium"})
+
+
+class TestVeniceSystemPromptTick(unittest.TestCase):
+    """include_venice_system_prompt — the Settings tick maps to it; a
+    hand-edited venice_parameters dict still wins (merge-over contract)."""
+
+    def test_tick_off_keeps_venice_preamble_out(self):
+        vp = engine.build_extra_body("m", True, venice=True,
+                                     venice_system_prompt=False)["venice_parameters"]
+        self.assertIs(vp["include_venice_system_prompt"], False)
+
+    def test_tick_on_appends_venice_preamble(self):
+        vp = engine.build_extra_body("m", True, venice=True,
+                                     venice_system_prompt=True)["venice_parameters"]
+        self.assertIs(vp["include_venice_system_prompt"], True)
+
+    def test_hand_edited_dict_still_wins_over_the_tick(self):
+        # venice_parameters merges OVER the tick — the config escape hatch
+        # stays authoritative when explicitly set.
+        vp = engine.build_extra_body(
+            "m", True, venice=True, venice_system_prompt=True,
+            venice_parameters={"include_venice_system_prompt": False})["venice_parameters"]
+        self.assertIs(vp["include_venice_system_prompt"], False)
+
+    def test_never_sent_when_venice_is_off(self):
+        eb = engine.build_extra_body("deepseek-v4", True, venice=False,
+                                     venice_system_prompt=True)
+        self.assertEqual(eb, {"enable_thinking": True})
 
 
 if __name__ == "__main__":
