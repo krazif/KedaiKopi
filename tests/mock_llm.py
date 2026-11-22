@@ -41,6 +41,17 @@ HUGE_REPLY = " ".join([REPLY + "." for _ in range(30)])
 # Same assumption the client's mock math uses (the real one now sets a
 # headroom ceiling, so the mock just needs a stable tok/word ratio)
 TOKENS_PER_WORD = 1.4
+
+# Canned lorebook-generation replies (matched on the caller's system prompt)
+DISTILL_FACTS = "the old jetty key stayed with her\nshe never locks the blue drawer"
+LOREBOOK_GEN_JSON = (
+    '{"entries": [{"key": ["x"], "comment": "short key", '
+    '"content": "must be dropped - key under three characters"}, '
+    '{"key": ["old jetty", "blue drawer"], "keysecondary": [], '
+    '"comment": "Jetty key", "content": "The old jetty key has stayed with '
+    'her since the fire. It opens the blue drawer upstairs, which she never '
+    'locks but never opens either."}]}'
+)
 WORDS_PER_FRAME = 2
 FRAME_DELAY = float(os.environ.get("MOCK_FRAME_DELAY", "0.04"))
 REJECT_STREAM = False
@@ -82,6 +93,16 @@ async def chat_completions(request: Request):
         )
 
     messages = body.get("messages", [])
+    # Lorebook generation calls are keyed on their system prompt: canned
+    # replies, plain (no [Name]: prefix — the payload is JSON/facts).
+    system_text = (messages[0].get("content") or "") if messages else ""
+    reply = finish = None
+    plain = False
+    if "lorebook (World Info) entries for a roleplay character" in system_text:
+        reply, finish, plain = LOREBOOK_GEN_JSON, "stop", True
+    elif "distill story facts" in system_text:
+        reply, finish, plain = DISTILL_FACTS, "stop", True
+
     user_text = last_user_text(messages)
     last = messages[-1] if messages else {}
     # Continuation = auto-continue (partial reply re-appended as assistant)
@@ -89,7 +110,9 @@ async def chat_completions(request: Request):
     is_continuation = (last.get("role") == "assistant"
                        or "Continue your previous message" in (last.get("content") or ""))
 
-    if is_continuation:
+    if reply is not None:
+        pass  # canned (lorebook generation)
+    elif is_continuation:
         reply, finish = CONTINUED, "stop"
     elif "TRUNCATE" in user_text:
         reply, finish = TRUNCATED, "length"
@@ -101,7 +124,7 @@ async def chat_completions(request: Request):
         reply, finish = REPLY, "stop"
 
     prefix = ""
-    if is_roleplay(messages) and "NOPREFIX" not in user_text:
+    if not plain and is_roleplay(messages) and "NOPREFIX" not in user_text:
         prefix = f"[{speaker_from(messages)}]: "
 
     full = prefix + reply

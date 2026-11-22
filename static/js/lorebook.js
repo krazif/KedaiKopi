@@ -199,6 +199,78 @@ function saveLorebookDebounced() {
   _lorebookSaveTimer = setTimeout(() => saveLorebook(), 1000);
 }
 
+function toggleLorebookGenPanel() {
+  const p = document.getElementById('lorebookGenPanel');
+  const show = p.style.display === 'none';
+  p.style.display = show ? '' : 'none';
+  if (show) populateLgCharSelect();
+}
+
+async function populateLgCharSelect() {
+  const sel = document.getElementById('lgCharSelect');
+  if (sel.options.length > 1) return;
+  try {
+    const cards = await (await fetch('/api/cards')).json();
+    sel.innerHTML = '<option value="">— character —</option>' + cards.map(c =>
+      `<option value="${escapeHtml(c.filename)}">${escapeHtml(c.name)}</option>`).join('');
+  } catch (e) {
+    document.getElementById('lgGenStatus').textContent = '✗ Failed to load cards';
+  }
+}
+
+function onLgSourceChange() {
+  // "Card only" has no chat scope to pick
+  document.getElementById('lgScope').disabled =
+    document.getElementById('lgSource').value === 'card';
+}
+
+async function generateLorebook() {
+  const statusEl = document.getElementById('lgGenStatus');
+  const btn = document.getElementById('lgGenBtn');
+  const fn = document.getElementById('lgCharSelect').value;
+  if (!fn) { statusEl.textContent = '⚠ Pick a character'; return; }
+  const source = document.getElementById('lgSource').value;
+  const scope = document.getElementById('lgScope').value;
+  const notes = document.getElementById('lgNotes').value.trim();
+  btn.disabled = true;
+  btn.textContent = 'Generating…';
+  statusEl.textContent = '⏳ Reading card and chats…';
+  try {
+    const r = await fetch('/api/lorebooks/generate', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({card_filename: fn, source: source, scope: scope,
+                            notes: notes, session_id: rpActiveSessionId}),
+    });
+    const j = await r.json();
+    if (!r.ok || j.error) {
+      statusEl.textContent = '✗ ' + (j.error || 'Generation failed');
+    } else if (!j.count) {
+      statusEl.textContent = '⚠ No entries produced' +
+        (j.warnings && j.warnings.length ? ' — ' + j.warnings[0] : '');
+    } else {
+      // Preview, unsaved — review entries in the editor, then Save.
+      const charName = document.getElementById('lgCharSelect')
+        .selectedOptions[0].textContent;
+      const safe = (fn.replace(/\.json$/i, '')).replace(/[^a-z0-9_-]+/gi, '_');
+      _currentLorebook = {
+        name: charName + ' — generated',
+        description: 'Generated from ' + charName + (j.facts_found ? ' + their chats' : '') +
+          ' · ' + new Date().toLocaleDateString(),
+        entries: j.entries,
+      };
+      _currentLorebook._filename = safe + '_lore.json';
+      renderLorebookDetail();
+      statusEl.textContent = '✓ ' + j.count + ' entries (from ' + j.facts_chunks +
+        ' chat chunks) — review, then Save';
+    }
+  } catch (err) {
+    statusEl.textContent = '✗ Error: ' + err.message;
+  }
+  btn.disabled = false;
+  btn.textContent = 'Generate entries';
+}
+
 async function saveLorebook() {
   if (!_currentLorebook || !_currentLorebook._filename) return;
   const fn = _currentLorebook._filename;
@@ -211,6 +283,7 @@ async function saveLorebook() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(data),
     });
+    await loadLorebookList();
   } catch (e) {
     console.error('Failed to save lorebook', e);
   }

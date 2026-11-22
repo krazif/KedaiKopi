@@ -1347,7 +1347,25 @@ header .status.connected { color:var(--green); }
         </div>
         <div style="padding:0 8px 8px;display:flex;gap:4px">
           <button class="btn-reset" style="flex:1;font-size:11px;padding:4px 8px" onclick="document.getElementById('lorebookImportInput').click()">⬆ Import</button>
+          <button class="btn-reset" style="flex:1;font-size:11px;padding:4px 8px" onclick="toggleLorebookGenPanel()">✨ Generate</button>
           <input type="file" id="lorebookImportInput" accept=".json,application/json" style="display:none" onchange="importLorebookFile(this)">
+        </div>
+        <div id="lorebookGenPanel" style="display:none;padding:0 8px 8px;border-bottom:1px solid var(--border)">
+          <select id="lgCharSelect" style="width:100%;font-size:12px;padding:4px 6px;margin-bottom:4px;border-radius:4px;border:1px solid var(--border);background:var(--surface2);color:var(--text)">
+            <option value="">— character —</option>
+          </select>
+          <select id="lgSource" onchange="onLgSourceChange()" style="width:100%;font-size:12px;padding:4px 6px;margin-bottom:4px;border-radius:4px;border:1px solid var(--border);background:var(--surface2);color:var(--text)">
+            <option value="both" selected>Card + their chats</option>
+            <option value="card">Card only</option>
+            <option value="chats">Their chats only</option>
+          </select>
+          <select id="lgScope" style="width:100%;font-size:12px;padding:4px 6px;margin-bottom:4px;border-radius:4px;border:1px solid var(--border);background:var(--surface2);color:var(--text)">
+            <option value="all" selected>All their sessions</option>
+            <option value="current">This session only</option>
+          </select>
+          <textarea id="lgNotes" rows="2" placeholder="Extra lore to cover (optional)" style="width:100%;font-size:11px;padding:4px 6px;margin-bottom:4px;border-radius:4px;border:1px solid var(--border);background:var(--surface2);color:var(--text);resize:vertical"></textarea>
+          <button class="btn-send" id="lgGenBtn" style="width:100%;font-size:12px;padding:5px" onclick="generateLorebook()">Generate entries</button>
+          <div id="lgGenStatus" style="font-size:11px;color:var(--sub);margin-top:4px"></div>
         </div>
         <div id="lorebookList" style="overflow-y:auto;flex:1"></div>
       </div>

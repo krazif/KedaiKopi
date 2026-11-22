@@ -489,6 +489,38 @@ def db_rp_save_console_events(session_id: int, events_json: str):
     conn.close()
 
 
+def db_rp_character_history(card_filename: str, char_name: str = None,
+                            session_id: int = None) -> list[dict]:
+    """A character's chat messages across sessions — source material for
+    lorebook generation.
+
+    Server-side only: this content is distilled by the configured LLM and
+    must never be surfaced to tool output.
+    """
+    conn = _connect()
+    try:
+        if session_id is not None:
+            sids = [session_id]
+        else:
+            sids = [r[0] for r in conn.execute(
+                "SELECT DISTINCT session_id FROM rp_characters WHERE card_filename = ?",
+                (card_filename,)).fetchall()]
+        out = []
+        for sid in sids:
+            sql = ("SELECT content FROM rp_messages WHERE session_id = ? "
+                   "AND role = 'character' ")
+            args = [sid]
+            if char_name:
+                sql += "AND speaker = ? "
+                args.append(char_name)
+            sql += "ORDER BY seq"
+            rows = conn.execute(sql, args).fetchall()
+            out.extend({"role": "character", "content": r[0]} for r in rows)
+        return out
+    finally:
+        conn.close()
+
+
 def db_rp_list_sessions() -> list[dict]:
     conn = _connect()
     rows = conn.execute(

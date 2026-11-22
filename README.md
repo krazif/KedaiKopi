@@ -29,6 +29,7 @@ A local web client for roleplaying with character cards — multi-character sess
 - Three positions, all real: *before system* (prepend to the system message), *after system* (append), *before chat* (its own message directly before the first user turn).
 - ST insertion order honoured: constants first, then ascending `order` — a larger order sits closer to the chat and carries more impact.
 - Attach any number of lorebooks per session from the scene bar; the console shows exactly what was injected.
+- **Generate from character** (Lorebook Manager → ✨ Generate): a card plus the character's chats become entries in two passes — the chat history is distilled into story facts, then the entry writer turns card + facts + optional notes into keyword-triggered entries. The chat pass is what makes the keys good: they come from words your conversations actually use. Source: *Card + their chats* / *Card only* / *Their chats only*; the result lands in the editor as an unsaved preview to review before Save.
 
 ### Character Cards
 

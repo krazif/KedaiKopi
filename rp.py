@@ -1288,6 +1288,64 @@ async def api_create_lorebook(req: Request):
     result = lorebook.create_lorebook(name, description)
     return JSONResponse(result)
 
+@router.post("/api/lorebooks/generate")
+async def api_generate_lorebook(req: Request):
+    """Generate lorebook entries for a character from their card and chats.
+
+    Two-pass: the character's chat history is distilled to story facts,
+    then the entry writer turns card + facts + notes into ST-format
+    entries. The reply is returned for preview — nothing is saved here.
+    """
+    body = await req.json()
+    card_filename = (body.get("card_filename") or "").strip()
+    source = body.get("source", "both")     # both | card | chats
+    scope = body.get("scope", "all")        # all | current
+    notes = (body.get("notes") or "").strip()
+    if not card_filename:
+        return JSONResponse({"error": "card_filename is required"}, status_code=400)
+    if source not in ("both", "card", "chats"):
+        source = "both"
+    try:
+        card = engine.load_card(card_filename)
+    except FileNotFoundError:
+        return JSONResponse({"error": "Card not found"}, status_code=404)
+
+    char_name = engine.resolve_char_name(card)
+    extra = engine.build_extra_body(db.CHAT_MODEL, db.CHAT_ENABLE_THINKING)
+    facts, chunks = "", 0
+    if source in ("chats", "both"):
+        msgs = db.db_rp_character_history(
+            card_filename, char_name,
+            body.get("session_id") if scope == "current" else None)
+        if msgs:
+            facts, chunks = await lorebook.distill_chat_facts(
+                msgs, db.chat_client, db.CHAT_MODEL, extra_body=extra)
+
+    if source == "card":
+        include_card, include_facts = True, False
+    elif source == "chats":
+        include_card, include_facts = False, True
+    else:
+        include_card, include_facts = True, True
+
+    if not include_card and not facts and not notes:
+        return JSONResponse(
+            {"error": "Nothing to work from — no chats for this character yet"},
+            status_code=400)
+
+    entries, warnings = await lorebook.generate_lorebook_entries(
+        card, facts if include_facts else "", notes,
+        client=db.chat_client, model=db.CHAT_MODEL,
+        include_card=include_card, extra_body=extra)
+    return JSONResponse({
+        "entries": entries,
+        "count": len(entries),
+        "facts_found": bool(facts),
+        "facts_chunks": chunks,
+        "warnings": warnings,
+    })
+
+
 @router.get("/api/lorebooks/{filename}")
 async def api_get_lorebook(filename: str):
     """Get a single lorebook with all entries."""

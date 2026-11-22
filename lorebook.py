@@ -23,6 +23,9 @@ Each lorebook has the SillyTavern World Info format:
 }
 """
 import json
+import re
+
+from json_repair import repair_json
 import os
 from pathlib import Path
 from typing import Optional
@@ -384,3 +387,206 @@ def import_lorebook(data: dict, override_name: str = "") -> dict:
 
     save_lorebook(filename, out_data)
     return {"filename": filename, "name": lb_name, "description": description, "entry_count": len(normalized)}
+
+
+# ─── Lorebook generation (card + chats -> entries) ──────────────────
+
+MIN_KEY_LEN = 3
+MAX_GEN_ENTRIES = 16
+
+LORE_DISTILL_SYSTEM = """You distill story facts from one chunk of a roleplay chat, about the speaking character and their world: past events, places, objects, relationships, promises, recurring references.
+
+Rules:
+1. Nothing invented — each fact traces to the text; when unsure, skip it.
+2. Use the conversation's own words for names and terms.
+3. One fact per line, plain text, at most 25 words each.
+4. Skip greetings, banter, style and formatting.
+5. If the chunk establishes nothing new, reply exactly: NONE
+
+Output: fact lines only — no numbering, headers or commentary."""
+
+LORE_GEN_SYSTEM = """You write lorebook (World Info) entries for a roleplay character — the lore BEHIND the card.
+
+Input: the character card (optional), established facts from real chats (optional), his notes (optional).
+Output: one JSON object, nothing else:
+{"entries":[{"key":["trigger"],"keysecondary":[],"comment":"label","content":"lore","constant":false,"order":100,"position":1}]}
+
+Rules:
+1. Scope: backstory, places, past events, items, factions, relationships — anything the story may revisit. Never persona, voice, dialogue or reply guidance: that belongs to the card.
+2. One self-contained topic per entry. Content: 50-120 words of third-person factual lore. No second person, no "you/your character", no meta talk.
+3. Keys (1-4 per entry): distinctive triggers likely to appear in chat — proper nouns, place names, signature items, multi-word phrases. Never generic words; every key at least 3 characters. keysecondary: extra triggers that must ALSO appear before the entry fires ([] if none).
+4. constant:false and position:1 for every entry. order: 100 default; raise to 200 only for the character's most central lore.
+5. Chat facts beat the card where they differ — the story is canon. Never mention the conflict.
+6. Nothing invented: every detail comes from the input. Missing detail: omit the topic instead of fabricating.
+7. At most {max_entries} entries; include only topics worth injecting.
+
+Reply with the JSON object alone — no code fences, no commentary."""
+
+
+def _clip(text: str, limit: int) -> str:
+    text = (text or "").strip()
+    if len(text) <= limit:
+        return text
+    return text[:limit].rsplit(" ", 1)[0] + "\u2026"
+
+
+def _chunk_contents(messages: list[dict], max_chars: int = 6000,
+                    max_chunks: int = 12) -> list[str]:
+    """Group message texts into chunks at message boundaries; oldest are
+    dropped first when the cap bites (recent words are the recurring ones).
+    """
+    texts = [(m.get("content") or "").strip() for m in messages]
+    texts = [t for t in texts if t]
+    chunks, cur = [], []
+    size = 0
+    for t in texts:
+        if cur and size + len(t) > max_chars:
+            chunks.append("\n\n".join(cur))
+            cur, size = [], 0
+        cur.append(t)
+        size += len(t) + 2
+    if cur:
+        chunks.append("\n\n".join(cur))
+    return chunks[-max_chunks:]
+
+
+async def _llm_chat(client, model: str, messages: list[dict], max_tokens: int,
+                    temperature: float = 0.4, extra_body=None) -> str:
+    kwargs = dict(model=model, messages=messages, temperature=temperature,
+                  max_tokens=max_tokens)
+    if extra_body:
+        kwargs["extra_body"] = extra_body
+    resp = await client.chat.completions.create(**kwargs)
+    return resp.choices[0].message.content or ""
+
+
+async def distill_chat_facts(messages: list[dict], client, model: str,
+                             extra_body=None) -> tuple:
+    """(facts_text, chunk_count) — one distill LLM call per chunk.
+
+    The facts feed the entry writer; only words the chats already use
+    survive, which is what makes the generated keys actually fire.
+    """
+    chunks = _chunk_contents(messages)
+    facts = []
+    for c in chunks:
+        raw = await _llm_chat(
+            client, model,
+            [{"role": "system", "content": LORE_DISTILL_SYSTEM},
+             {"role": "user", "content": c}],
+            max_tokens=700, extra_body=extra_body)
+        for line in (raw or "").splitlines():
+            line = line.strip()
+            if not line or line.upper() == "NONE":
+                continue
+            facts.append(line)
+    seen = set()
+    out = []
+    for f in facts:
+        if f.lower() not in seen:
+            seen.add(f.lower())
+            out.append(f)
+    return "\n".join(out), len(chunks)
+
+
+def build_lorebook_gen_messages(card: dict, facts: str = "", notes: str = "",
+                                include_card: bool = True,
+                                max_entries: int = MAX_GEN_ENTRIES) -> list[dict]:
+    """[system, user] for the entry writer."""
+    d = card.get("data", card)
+    parts = []
+    if include_card:
+        name = d.get("name") or "Unknown"
+        lines = [f"Character name: {name}"]
+        desc = _clip(str(d.get("description") or ""), 2000)
+        scen = _clip(str(d.get("scenario") or ""), 800)
+        pers = _clip(str(d.get("personality") or ""), 600)
+        notes_c = _clip(str(d.get("creator_notes") or ""), 600)
+        if desc:
+            lines.append("Card description:\n" + desc)
+        if scen:
+            lines.append("Card scenario:\n" + scen)
+        if pers:
+            lines.append("Card personality:\n" + pers)
+        if notes_c:
+            lines.append("Creator notes:\n" + notes_c)
+        parts.append("\n".join(lines))
+    if facts.strip():
+        parts.append("Established facts from the character's chats:\n" + facts.strip())
+    if notes.strip():
+        parts.append("His notes on lore to cover:\n" + notes.strip())
+    user = "\n\n".join(parts) if parts else "(no source content)"
+    system = LORE_GEN_SYSTEM.replace("{max_entries}", str(int(max_entries)))
+    return [{"role": "system", "content": system},
+            {"role": "user", "content": user}]
+
+
+def parse_generated_entries(raw: str, max_entries: int = MAX_GEN_ENTRIES) -> tuple:
+    """(uid-keyed entries dict, warnings list) from the LLM reply.
+
+    Guards: JSON (json_repair fallback for fences/comma slips), keys at
+    least MIN_KEY_LEN, non-empty content, ST order semantics kept, entry
+    count capped. A key that only exists inside another entry's key list
+    keeps its first entry — duplicates waste injection budget.
+    """
+    warnings = []
+    text = (raw or "").strip()
+    text = re.sub(r"^```[a-zA-Z]*\s*", "", text)
+    text = re.sub(r"\s*```$", "", text).strip()
+    data = None
+    try:
+        data = json.loads(text)
+    except Exception:
+        try:
+            data = json.loads(repair_json(text))
+            warnings.append("repaired malformed JSON")
+        except Exception:
+            return {}, ["reply was not JSON"]
+    if isinstance(data, dict):
+        data = data.get("entries")
+    if not isinstance(data, list):
+        return {}, ["reply had no entries list"]
+
+    entries, seen_keys = {}, set()
+    for e in data:
+        if not isinstance(e, dict):
+            continue
+        if len(entries) >= max_entries:
+            warnings.append(f"entry cap ({max_entries}) reached — extra entries dropped")
+            break
+        norm = _normalize_entry(len(entries), e)
+        keys = [k for k in norm.get("key", [])
+                if isinstance(k, str) and len(k.strip()) >= MIN_KEY_LEN]
+        keys = [k.strip() for k in keys]
+        if not keys:
+            warnings.append("dropped entry with no usable keys: "
+                            + (norm.get("comment") or "unnamed"))
+            continue
+        if not (norm.get("content") or "").strip():
+            warnings.append("dropped entry with empty content: "
+                            + (norm.get("comment") or "unnamed"))
+            continue
+        sig = tuple(sorted(k.lower() for k in keys))
+        if sig in seen_keys:
+            warnings.append("dropped duplicate key set: " + (norm.get("comment") or "unnamed"))
+            continue
+        seen_keys.add(sig)
+        norm["key"] = keys
+        norm["constant"] = False          # always-on lore belongs in the card
+        norm["position"] = POSITION_AFTER_SYSTEM
+        entries[str(len(entries))] = norm
+    return entries, warnings
+
+
+async def generate_lorebook_entries(card: dict, facts: str = "", notes: str = "",
+                                    client=None, model: str = "",
+                                    include_card: bool = True,
+                                    extra_body=None,
+                                    max_entries: int = MAX_GEN_ENTRIES) -> tuple:
+    """(entries dict, warnings) — one LLM call writing the entry set."""
+    messages = build_lorebook_gen_messages(card, facts, notes,
+                                          include_card=include_card,
+                                          max_entries=max_entries)
+    raw = await _llm_chat(client, model, messages, max_tokens=3500,
+                          temperature=0.5, extra_body=extra_body)
+    return parse_generated_entries(raw, max_entries=max_entries)

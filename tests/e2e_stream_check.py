@@ -268,6 +268,70 @@ async def scenario_d_fallback(uri):
           repr(final["content"][:50]))
 
 
+async def scenario_f_lorebook(app_port):
+    """Lorebook generation over the REST API: card + synthetic chat history
+    distilled into entries, then the preview->save round trip."""
+    print("F. Lorebook generation — card + chats distilled into entries")
+    import websockets
+    base = f"http://127.0.0.1:{app_port}"
+
+    # synthetic history: one RP turn so the distill pass has a chunk
+    async with websockets.connect(f"{base.replace('http', 'ws')}/ws/rp",
+                                  max_size=16 * 1024 * 1024) as ws:
+        await ws.send(json.dumps({"type": "start", "characters": ["p_ramlee.json"]}))
+        await collect_until(ws, lambda f: f.get("type") == "session_started")
+        await collect_until(ws, lambda f: f.get("type") == "character_message"
+                            and f.get("is_first_mes"))
+        await ws.send(json.dumps({"type": "user_message",
+                                  "content": "She kept the old jetty key."}))
+        await collect_until(ws, lambda f: f.get("type") == "character_message"
+                            and not f.get("is_first_mes"))
+
+    def post(path, payload=None):
+        data = json.dumps(payload).encode() if payload is not None else None
+        req = urllib.request.Request(base + path, data=data,
+                                     headers={"Content-Type": "application/json"},
+                                     method="POST" if data else "GET")
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return json.load(r)
+
+    gen = post("/api/lorebooks/generate",
+               {"card_filename": "p_ramlee.json", "source": "both"})
+    entries = gen.get("entries", {})
+    check("chat facts distilled", gen.get("facts_found") is True
+          and gen.get("facts_chunks", 0) >= 1, f"chunks={gen.get('facts_chunks')}")
+    check("entries produced", gen.get("count", 0) >= 1, f"count={gen.get('count')}")
+    check("short keys filtered by the guard",
+          all(len(k) >= 3 for e in entries.values() for k in e["key"]))
+    check("entry shape normalized",
+          all(e["constant"] is False and e["position"] == 1 and e["order"] == 100
+              for e in entries.values()),
+          "constant off, position 1 (after system), order 100")
+
+    # preview -> save round trip
+    book = {"name": "E2E Gen", "description": "e2e", "entries": entries}
+    put = urllib.request.Request(base + "/api/lorebooks/e2egen.json",
+                                 data=json.dumps(book).encode(),
+                                 headers={"Content-Type": "application/json"},
+                                 method="PUT")
+    with urllib.request.urlopen(put, timeout=30):
+        pass
+    with urllib.request.urlopen(base + "/api/lorebooks/e2egen.json", timeout=30) as r:
+        got = json.load(r)
+    check("saved entries round-trip", got.get("entries") == entries)
+
+    # card-only path reports no chat facts
+    gen2 = post("/api/lorebooks/generate",
+                {"card_filename": "p_ramlee.json", "source": "card"})
+    check("card-only path works and sees no chats",
+          gen2.get("count", 0) >= 1 and gen2.get("facts_found") is False)
+
+    # cleanup the generated book
+    req = urllib.request.Request(base + "/api/lorebooks/e2egen.json", method="DELETE")
+    with urllib.request.urlopen(req, timeout=30):
+        pass
+
+
 def start_app(workdir, env_overrides, log_path):
     env = dict(os.environ)
     env.update(env_overrides)
@@ -325,6 +389,7 @@ async def main():
         await scenario_b_rp(ws_uri, card_name)
         await scenario_c_auto_continue(ws_uri)
         await scenario_e_style_cap(ws_uri)
+        await scenario_f_lorebook(APP_PORT)
 
         # Swap the mock for one that refuses streaming, then re-run D
         mock.terminate()
