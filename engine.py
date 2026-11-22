@@ -203,9 +203,14 @@ def _is_gemma(model: str) -> bool:
     return bool(model and "gemma" in model.lower())
 
 
+# Venice reasoning effort levels (docs.venice.ai "Reasoning Models").
+_REASONING_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh", "max"}
+
+
 def build_extra_body(model: str, enable_thinking: bool,
                      venice: Optional[bool] = None,
-                     venice_parameters: Optional[dict] = None) -> dict:
+                     venice_parameters: Optional[dict] = None,
+                     reasoning_effort: Optional[str] = None) -> dict:
     """Build the extra_body for LLM calls, branching on provider/model.
 
     Venice AI (api.venice.ai): its ChatCompletionRequest is
@@ -217,6 +222,11 @@ def build_extra_body(model: str, enable_thinking: bool,
       - strip_thinking_response: True — reasoning blocks stay out of the
         reply text (no-op on non-thinking models)
       - disable_thinking: True — only when thinking is switched OFF here
+    Venice's reasoning controls ride alongside as top-level `reasoning`:
+    thinking OFF sends {"reasoning": {"enabled": False}} — their recommended
+    switch — never with an effort (an effort would override the off switch);
+    thinking ON with a configured effort sends {"reasoning": {"effort":
+    <level>}}; "auto"/empty/invalid sends nothing and the model decides.
     `venice_parameters` (from chat config) merges OVER those defaults, so
     e.g. {"include_venice_system_prompt": true} or {"enable_web_search":
     "off"} can be set by hand in config.jsonc.
@@ -233,6 +243,8 @@ def build_extra_body(model: str, enable_thinking: bool,
         venice = getattr(db, "CHAT_VENICE", False)
         if venice_parameters is None:
             venice_parameters = getattr(db, "CHAT_VENICE_PARAMETERS", {}) or {}
+        if reasoning_effort is None:
+            reasoning_effort = getattr(db, "CHAT_REASONING_EFFORT", "")
     if venice:
         # The explicit tick wins over the model-family branch: if the
         # endpoint is Venice, only Venice-accepted fields may be sent.
@@ -240,12 +252,20 @@ def build_extra_body(model: str, enable_thinking: bool,
             "include_venice_system_prompt": False,
             "strip_thinking_response": True,
         }
+        extra = {"venice_parameters": vp}
         if not enable_thinking:
             vp["disable_thinking"] = True
+            # Docs: reasoning.enabled is IGNORED when an effort is set, so
+            # the off case carries no effort — the toggle alone decides.
+            extra["reasoning"] = {"enabled": False}
+        else:
+            effort = str(reasoning_effort or "").strip().lower()
+            if effort and effort != "auto" and effort in _REASONING_EFFORTS:
+                extra["reasoning"] = {"effort": effort}
         if venice_parameters:
             vp.update({k: v for k, v in venice_parameters.items()
                        if v is not None})
-        return {"venice_parameters": vp}
+        return extra
     if _is_gemma(model):
         if not enable_thinking:
             return {"reasoning_effort": "none"}

@@ -1028,6 +1028,7 @@ async def get_config():
             "top_k": _c.get("chat", {}).get("top_k", 40),
             "enable_thinking": _c.get("chat", {}).get("enable_thinking", False),
             "venice": _c.get("chat", {}).get("venice", False),
+            "reasoning_effort": _c.get("chat", {}).get("reasoning_effort", "auto"),
         },
         "analysis": {
             "base_url": _c.get("analysis", {}).get("base_url", ""),

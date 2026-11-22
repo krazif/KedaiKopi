@@ -17,6 +17,8 @@ async function openSettings() {
     document.getElementById('cfgChatTopK').value = cfg.chat.top_k != null ? cfg.chat.top_k : '';
     document.getElementById('cfgChatEnableThinking').checked = cfg.chat.enable_thinking ?? false;
     document.getElementById('cfgChatVenice').checked = cfg.chat.venice ?? false;
+    document.getElementById('cfgChatReasoningEffort').value = cfg.chat.reasoning_effort || 'auto';
+    onCfgChatVeniceToggle();
     document.getElementById('cfgAnalysisBaseUrl').value = cfg.analysis.base_url || '';
     document.getElementById('cfgAnalysisApiKey').value = cfg.analysis.api_key || '';
     document.getElementById('cfgAnalysisModel').value = cfg.analysis.model || '';
@@ -87,6 +89,12 @@ function closeSettings() {
   document.getElementById('settingsOverlay').classList.remove('show');
 }
 
+function onCfgChatVeniceToggle() {
+  // The effort control is a Venice-only request parameter (reasoning.effort)
+  const row = document.getElementById('cfgChatReasoningRow');
+  if (row) row.style.display = document.getElementById('cfgChatVenice').checked ? '' : 'none';
+}
+
 async function saveSettings() {
   const btn = document.getElementById('settingsSaveBtn');
   btn.disabled = true;
@@ -107,6 +115,7 @@ async function saveSettings() {
         top_k: (() => { const v = document.getElementById('cfgChatTopK').value.trim(); return v === '' ? null : (isNaN(v) ? null : parseInt(v)); })(),
         enable_thinking: document.getElementById('cfgChatEnableThinking').checked,
         venice: document.getElementById('cfgChatVenice').checked,
+        reasoning_effort: document.getElementById('cfgChatReasoningEffort').value || 'auto',
       },
       analysis: {
         base_url: document.getElementById('cfgAnalysisBaseUrl').value.trim(),

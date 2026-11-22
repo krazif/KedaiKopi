@@ -65,5 +65,60 @@ class TestVeniceExtraBody(unittest.TestCase):
         self.assertIn("venice_parameters", eb)
 
 
+class TestVeniceReasoningControls(unittest.TestCase):
+    """reasoning.enabled / reasoning.effort — Venice's documented controls.
+
+    Docs rule: reasoning.enabled is IGNORED when an effort is set, so the
+    off case must never carry an effort alongside it.
+    """
+
+    def test_thinking_off_uses_both_off_switches(self):
+        eb = engine.build_extra_body("m", False, venice=True,
+                                     reasoning_effort="auto")
+        self.assertEqual(eb["reasoning"], {"enabled": False})
+        self.assertIs(eb["venice_parameters"]["disable_thinking"], True)
+        self.assertNotIn("effort", eb["reasoning"])
+
+    def test_effort_level_sent_when_thinking_is_on(self):
+        eb = engine.build_extra_body("m", True, venice=True,
+                                     reasoning_effort="high")
+        self.assertEqual(eb["reasoning"], {"effort": "high"})
+        self.assertNotIn("disable_thinking", eb["venice_parameters"])
+
+    def test_auto_and_empty_effort_send_no_reasoning_key(self):
+        for v in ("auto", "", "  "):
+            eb = engine.build_extra_body("m", True, venice=True,
+                                         reasoning_effort=v)
+            self.assertNotIn("reasoning", eb, repr(v))
+
+    def test_every_documented_level_is_accepted(self):
+        for level in ("none", "minimal", "low", "medium", "high", "xhigh", "max"):
+            eb = engine.build_extra_body("m", True, venice=True,
+                                         reasoning_effort=level)
+            self.assertEqual(eb["reasoning"], {"effort": level}, level)
+
+    def test_thinking_off_wins_over_a_set_effort(self):
+        eb = engine.build_extra_body("m", False, venice=True,
+                                     reasoning_effort="high")
+        self.assertEqual(eb["reasoning"], {"enabled": False})
+
+    def test_invalid_effort_is_ignored(self):
+        eb = engine.build_extra_body("m", True, venice=True,
+                                     reasoning_effort="turbo")
+        self.assertNotIn("reasoning", eb)
+
+    def test_effort_never_leaks_when_venice_is_off(self):
+        eb = engine.build_extra_body("deepseek-v4", True, venice=False,
+                                     reasoning_effort="high")
+        self.assertEqual(eb, {"enable_thinking": True})
+
+    def test_explicit_args_ignore_the_config_fallback(self):
+        # Deterministic regardless of what config.jsonc holds.
+        eb = engine.build_extra_body("m", True, venice=True,
+                                     venice_parameters={},
+                                     reasoning_effort="medium")
+        self.assertEqual(eb["reasoning"], {"effort": "medium"})
+
+
 if __name__ == "__main__":
     unittest.main()
