@@ -44,9 +44,9 @@ def _json_val(val):
 
 # ─── Config ───────────────────────────────────────────────────────
 # Load config from config.jsonc (supports comments)
-def load_config() -> dict:
+def load_config(path=None) -> dict:
     """Load JSONC config file (JSON with comments)."""
-    config_path = Path(__file__).parent / "config.jsonc"
+    config_path = Path(path) if path else Path(__file__).parent / "config.jsonc"
     if not config_path.exists():
         return {}
     raw = config_path.read_text(encoding="utf-8")
@@ -92,9 +92,37 @@ def load_config() -> dict:
     return json.loads(cleaned)
 
 
-def save_config(cfg: dict):
+def _dump_extras(lines: list, data: dict, marker: str, indent: str = "    "):
+    """Append keys the hand-written block above didn't emit.
+
+    A save from a backend older than the frontend silently dropped any key
+    its writer didn't know (2026-11-22: a Settings save lost the new
+    venice_system_prompt tick exactly this way). Unknown keys — new UI
+    fields, hand-added experiments — now ride through every save.
+    Caveat: a key name that only exists inside a nested dict value (e.g.
+    inside venice_parameters) counts as "written".
+    """
+    start = max(i for i, l in enumerate(lines) if l.strip() == marker)
+    body = "\n".join(lines[start:])
+    extras = [(k, v) for k, v in data.items() if f'"{k}":' not in body]
+    if not extras:
+        return
+    last = lines[-1]
+    if not last.rstrip().endswith(","):
+        if "//" in last:  # keep the trailing comment trailing
+            head, tail = last.split("//", 1)
+            lines[-1] = head.rstrip().rstrip(",") + ",  //" + tail
+        else:
+            lines[-1] = last + ","
+    for k, v in extras[:-1]:
+        lines.append(f'{indent}"{k}": {json.dumps(v)},')
+    k, v = extras[-1]
+    lines.append(f'{indent}"{k}": {json.dumps(v)}')
+
+
+def save_config(cfg: dict, path=None):
     """Save config dict back to config.jsonc (pretty JSONC with comments)."""
-    config_path = Path(__file__).parent / "config.jsonc"
+    config_path = Path(path) if path else Path(__file__).parent / "config.jsonc"
     lines = []
     lines.append("// ─── KedaiKopi Configuration ──────────────────────────────────")
     lines.append("// JSONC format — comments are allowed (// and /* */")
@@ -106,6 +134,7 @@ def save_config(cfg: dict):
     lines.append('  "server": {')
     lines.append(f'    "host": {json.dumps(srv.get("host", "0.0.0.0"))},')
     lines.append(f'    "port": {int(srv.get("port", 7864))}')
+    _dump_extras(lines, srv, '"server": {')
     lines.append('  },')
     chat = cfg.get("chat", {})
     lines.append('')
@@ -124,6 +153,7 @@ def save_config(cfg: dict):
     lines.append(f'    "venice_system_prompt": {"true" if chat.get("venice_system_prompt", False) else "false"},')
     lines.append('    "venice_parameters": ' + json.dumps(chat.get("venice_parameters") or {}) + ',')
     lines.append('    "reasoning_effort": ' + json.dumps(str(chat.get("reasoning_effort", "auto"))))
+    _dump_extras(lines, chat, '"chat": {')
     lines.append('  },')
     ana = cfg.get("analysis", {})
     lines.append('')
@@ -137,6 +167,7 @@ def save_config(cfg: dict):
     lines.append(f'    "max_tokens": {int(ana.get("max_tokens", 1500))},')
     lines.append(f'    "top_p": {_json_val(ana.get("top_p"))},')
     lines.append(f'    "top_k": {_json_val(ana.get("top_k"))}')
+    _dump_extras(lines, ana, '"analysis": {')
     lines.append('  },')
     summ = cfg.get("summary", {})
     lines.append('')
@@ -150,6 +181,7 @@ def save_config(cfg: dict):
     lines.append(f'    "max_tokens": {int(summ.get("max_tokens", 1000))},')
     lines.append(f'    "top_p": {_json_val(summ.get("top_p"))},')
     lines.append(f'    "top_k": {_json_val(summ.get("top_k"))}')
+    _dump_extras(lines, summ, '"summary": {')
     lines.append('  },')
     imggen = cfg.get("imagegen", {})
     lines.append('')
@@ -171,6 +203,7 @@ def save_config(cfg: dict):
     lines.append('    "style_mood": ' + json.dumps(str(imggen.get("style_mood", ""))) + ',')
     wf = imggen.get("workflow")
     lines.append('    "workflow": ' + (json.dumps(wf) if wf else 'null') + '  // null = use built-in default txt2img workflow')
+    _dump_extras(lines, imggen, '"imagegen": {')
     lines.append('  },')
     imgauto = cfg.get("imagegen_auto", {})
     lines.append('')
@@ -185,6 +218,7 @@ def save_config(cfg: dict):
     lines.append(f'    "max_tokens": {int(imgauto.get("max_tokens", 500))},')
     lines.append(f'    "interval": {int(imgauto.get("interval", 5))},' + '  // auto-generate every N messages')
     lines.append('    "negative_prompt": ' + json.dumps(str(imgauto.get("negative_prompt", ""))) + '')
+    _dump_extras(lines, imgauto, '"imagegen_auto": {')
     lines.append('  },')
     paths = cfg.get("paths", {})
     lines.append('')
@@ -195,6 +229,7 @@ def save_config(cfg: dict):
     pdir = paths.get("personas_dir")
     lines.append('    "personas_dir": ' + (json.dumps(pdir) if pdir else 'null') + '  // null = defaults to ./personas inside app dir')
     # ─── Presets ───
+    _dump_extras(lines, paths, '"paths": {')
     presets = cfg.get("presets", {})
     if presets:
         lines.append('  },')
