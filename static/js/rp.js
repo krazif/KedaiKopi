@@ -110,19 +110,50 @@ function startRPSession() {
 }
 
 // ─── RP WebSocket ───────────────────────────────
-function connectRPWS(startData, resumeSessionId) {
+// ─── Auto-reconnect ─────────────────────────────────────────────
+// A dropped socket (backend restart, laptop sleep, Wi-Fi blip) used to
+// leave the pill on "Disconnected" forever with sends silently dropped.
+// Now: retry with exponential backoff and re-resume the active session
+// when the socket comes back.
+let rpReconnectTimer = null;
+let rpReconnectDelay = 1000;          // 1s, 2s, 4s, capped at 8s
+let rpConnLostShown = false;          // one "connection lost" line per outage
+
+function scheduleRPReconnect() {
+  if (rpReconnectTimer) return;
+  document.getElementById('status').textContent = 'Reconnecting…';
+  document.getElementById('status').classList.remove('connected');
+  rpReconnectTimer = setTimeout(() => {
+    rpReconnectTimer = null;
+    connectRPWS(null, rpActiveSessionId || null, true);
+  }, rpReconnectDelay);
+  rpReconnectDelay = Math.min(rpReconnectDelay * 2, 8000);
+}
+
+function connectRPWS(startData, resumeSessionId, isRetry) {
+  if (!isRetry) {                     // a user-initiated connect resets the backoff
+    rpReconnectDelay = 1000;
+    if (rpReconnectTimer) {
+      clearTimeout(rpReconnectTimer);
+      rpReconnectTimer = null;
+    }
+  }
   if (rpWS) rpWS.close();
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   rpWS = new WebSocket(proto + '://' + location.host + '/ws/rp');
 
   rpWS.onopen = () => {
+    rpReconnectDelay = 1000;
+    rpConnLostShown = false;
     document.getElementById('status').textContent = 'Connected';
     document.getElementById('status').classList.add('connected');
     if (resumeSessionId) {
       rpWS.send(JSON.stringify({type: 'resume', session_id: resumeSessionId}));
-    } else {
+    } else if (startData) {
       rpWS.send(JSON.stringify({type: 'start', ...startData}));
     }
+    // bare boot connection: no payload — keeps the pill honest and the
+    // socket warm for the first start/resume
   };
 
   rpWS.onmessage = (event) => {
@@ -130,14 +161,18 @@ function connectRPWS(startData, resumeSessionId) {
     handleRPMessage(data);
   };
 
-  rpWS.onclose = () => {
-    document.getElementById('status').textContent = 'Disconnected';
-    document.getElementById('status').classList.remove('connected');
+  rpWS.onclose = (event) => {
+    // A superseded socket (closed to make way for a newer one) must not
+    // mark the fresh connection as dead — compare against the live socket.
+    if (event.target !== rpWS) return;
+    if (!rpConnLostShown) {
+      rpConnLostShown = true;
+      addRPMessage('system', 'Connection lost — reconnecting…', null, null, null, null);
+    }
+    scheduleRPReconnect();
   };
-
-  rpWS.onerror = () => {
-    addRPMessage('system', 'Connection error', null, null, null, null);
-  };
+  // onerror always precedes onclose for a failed socket; the close handler
+  // owns the retry, so there is nothing to add here.
 }
 
 function handleRPMessage(data) {
@@ -246,6 +281,10 @@ function handleRPMessage(data) {
     rpVisibleCount.value = Math.min(VIRTUAL_SCROLL_BATCH, rpMessages.length);
     renderVirtualMessages('rpChatMessages', rpMessages, rpVisibleCount.value);
     initVirtualScroll('rpChatMessages', rpMessages, rpVisibleCount, rpObserver);
+    // A socket dropped mid-generation leaves this flag stuck true — the
+    // generation died with the old connection, so re-enable the input.
+    rpIsWaiting = false;
+    updateRPInputState();
     document.getElementById('rpInputArea').style.display = 'flex';
     document.getElementById('rpAuthorNoteBar').style.display = '';
     rpIsWaiting = false;

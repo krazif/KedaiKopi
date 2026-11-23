@@ -58,6 +58,7 @@ A local web client for roleplaying with character cards — multi-character sess
 - LLM console panel: raw, unformatted prompt/response inspector — fully verbose, no truncation — including lorebook injections and auto-continue events.
 - Chat backgrounds (upload or URL, per-session persistence), dark theme throughout, swipes on every message (alternatives side by side with left/right arrows).
 - **Settings** editable in-app (saved to `config.jsonc`); **Danger Zone** resets the database and VACUUMs.
+- **Self-healing connection**: the status pill reflects the backend from page load (a bare socket opens at boot), and a dropped socket — backend restart, laptop sleep, Wi-Fi blip — reconnects automatically with backoff and re-resumes the active session, restoring the chat and re-enabling the input.
 
 ---
 

@@ -553,3 +553,4 @@ function previewGalleryImage(img) {
 loadCardList();
 loadRPSessions();  // RP is the only mode: the sidebar list must load here
                    // (in the parent this ran via switchMode('rp') on tab click)
+connectRPWS(null, null);  // bare socket: the status pill reflects the backend
