@@ -69,7 +69,11 @@ class TextingReminderTests(unittest.TestCase):
         note = engine.texting_reminder_for_reply(
             self._msgs("You: on my way"), "moderate", ["You", "User", "Farah"])
         self.assertIsNotNone(note)
-        self.assertIn("answer with one or more `Name: message` lines of your own", note)
+        self.assertIn("Reply ONLY with text lines", note)
+        # a concrete example at the generation point — imitation beats instruction
+        self.assertIn("`Farah: on my way`", note)
+        # no escape hatch: the phone input asked for a text, it gets a text
+        self.assertNotIn("Narrate only if", note)
 
     def test_stays_silent_for_narration(self):
         # a prose message must never be told to answer with texts
@@ -85,6 +89,39 @@ class TextingReminderTests(unittest.TestCase):
         note = engine.texting_reminder_for_reply(
             self._msgs("farah: you there?"), "moderate", ["Farah"])
         self.assertIsNotNone(note)
+
+
+class PerReplyNoteTests(unittest.TestCase):
+    """Exactly ONE note rides the final user turn — the field regression
+    appended the answer-in-kind reminder NEXT TO the length note, so the
+    model got "150-300 words" and "no narration" at the same moment and
+    chose prose."""
+
+    @staticmethod
+    def _msgs(last_user_content):
+        return [{"role": "system", "content": "sys"},
+                {"role": "user", "content": last_user_content}]
+
+    def test_a_text_gets_the_reminder_and_never_the_length_note(self):
+        note = engine.per_reply_note(self._msgs("You: on my way"), "moderate",
+                                     ["Farah", "You", "User"], ["some old prose reply"])
+        self.assertIsNotNone(note)
+        self.assertIn("was a text", note)
+        self.assertNotIn("150", note)          # the contradiction, gone
+        self.assertNotIn("This reply stays", note)
+
+    def test_narration_keeps_the_length_note(self):
+        note = engine.per_reply_note(self._msgs("I walk in."), "moderate",
+                                     ["Farah"], ["some old prose reply"])
+        self.assertIn("150 and 300", note)
+
+    def test_texting_mode_gets_no_note_at_all(self):
+        self.assertIsNone(engine.per_reply_note(self._msgs("You: hi"), "texting",
+                                               ["Farah", "You", "User"], None))
+
+    def test_flexible_narration_still_gets_no_note(self):
+        self.assertIsNone(engine.per_reply_note(self._msgs("I walk in."), "flexible",
+                                               ["Farah"], None))
 
 
 if __name__ == "__main__":

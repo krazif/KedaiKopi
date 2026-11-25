@@ -1194,10 +1194,31 @@ def texting_reminder_for_reply(llm_messages: list, response_style: Optional[str]
     first = (last_user.get("content") or "").strip().split("\n", 1)[0].strip()
     for n in sorted((x for x in known_names if x), key=len, reverse=True):
         if len(first) > len(n) + 1 and first[:len(n) + 1].lower() == (n + ":").lower():
-            return ("The user's last message was a text — answer with one or more "
-                    "`Name: message` lines of your own, not narration. Narrate only "
-                    "if the scene itself demands it.")
+            # a concrete example at the generation point: imitation beats
+            # instruction, and NO escape hatch — the phone input asked for
+            # a text, so the reply is a text (narration has the main box).
+            example_name = next((x for x in known_names
+                                 if x and x.lower() not in ("you", "user")), None) or "Name"
+            return ("The user's last message was a text. Reply ONLY with text lines — "
+                    f"your own `Name: message` lines (e.g. `{example_name}: on my way`), "
+                    "no narration, no actions, no scene prose. A text gets a text back.")
     return None
+
+
+def per_reply_note(llm_messages: list, response_style: Optional[str],
+                   known_names: list, recent_replies: Optional[list] = None) -> Optional[str]:
+    """Exactly ONE note for the final user turn.
+
+    A text gets the answer-in-kind reminder and NEVER the length note: a
+    text is not 150-300 words, and sending both at the most proximate
+    position handed the model a contradiction ("write substantial prose"
+    next to "no narration") — it chose prose. Field regression, 2026-11-25.
+    Narration keeps the length note as before; texting mode gets neither.
+    """
+    texting = texting_reminder_for_reply(llm_messages, response_style, known_names)
+    if texting:
+        return texting
+    return length_note_for_reply(response_style, recent_replies)
 
 
 def append_length_note(llm_messages: list, note: Optional[str]) -> list:

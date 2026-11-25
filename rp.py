@@ -409,29 +409,20 @@ async def ws_rp(ws: WebSocket):
                         llm_messages, block_markers = db.build_llm_messages_from_stack(
                             stack_cfg, system_prompt, all_msgs,
                         )
-                        # Per-reply length note in author's-note position (last
-                        # user message) — length is imitated from history more
-                        # than obeyed from the system-prompt note alone.
+                        # Exactly ONE note in author's-note position (last user
+                        # message): a text gets the answer-in-kind reminder, prose
+                        # gets the length note — never both. Appending both handed
+                        # the model "150-300 words" next to "no narration" at the
+                        # decisive position and it chose prose (field regression).
                         llm_messages = engine.append_length_note(
                             llm_messages,
-                            engine.length_note_for_reply(
-                                response_style,
-                                [m.get("content", "") for m in all_msgs
-                                 if m.get("role") in ("character", "assistant")],
-                            ),
-                        )
-
-                        # Answer-in-kind at the same proven position: a rule far
-                        # from generation loses to the conversation's momentum —
-                        # typing @name worked in the field because it sat HERE.
-                        # Fires only when the last user message actually is a text.
-                        llm_messages = engine.append_length_note(
-                            llm_messages,
-                            engine.texting_reminder_for_reply(
+                            engine.per_reply_note(
                                 llm_messages, response_style,
                                 [*character_names.values(),
                                  persona.get("name") if persona else None,
-                                 "You", "User"]),
+                                 "You", "User"],
+                                [m.get("content", "") for m in all_msgs
+                                 if m.get("role") in ("character", "assistant")]),
                         )
 
                         # ── Lorebook injection (one helper: placement + console event) ──
@@ -604,25 +595,17 @@ async def ws_rp(ws: WebSocket):
                             llm_messages, block_markers = db.build_llm_messages_from_stack(
                                 stack_cfg, system_prompt, all_msgs,
                             )
-                            # Per-reply length note in author's-note position
+                            # Exactly ONE note (see main-gen comment): text →
+                            # answer-in-kind reminder, prose → length note.
                             llm_messages = engine.append_length_note(
                                 llm_messages,
-                                engine.length_note_for_reply(
-                                    response_style,
-                                    [m.get("content", "") for m in all_msgs
-                                     if m.get("role") in ("character", "assistant")],
-                                ),
-                            )
-
-                            # Answer-in-kind at the same proven position (regen
-                            # of a reply to a text must also answer with texts).
-                            llm_messages = engine.append_length_note(
-                                llm_messages,
-                                engine.texting_reminder_for_reply(
+                                engine.per_reply_note(
                                     llm_messages, response_style,
                                     [*character_names.values(),
                                      persona.get("name") if persona else None,
-                                     "You", "User"]),
+                                     "You", "User"],
+                                    [m.get("content", "") for m in all_msgs
+                                     if m.get("role") in ("character", "assistant")]),
                             )
 
                             # ── Lorebook injection (one helper: placement + console event) ──
