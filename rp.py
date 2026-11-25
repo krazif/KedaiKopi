@@ -409,6 +409,15 @@ async def ws_rp(ws: WebSocket):
                         llm_messages, block_markers = db.build_llm_messages_from_stack(
                             stack_cfg, system_prompt, all_msgs,
                         )
+                        # Voice anchor, history side: mark the aimed character's
+                        # past turns `[Name (you)]:` — the model imitates the most
+                        # RECENT voice in history, so when another character's
+                        # prose dominates, the reply came out in that voice and
+                        # got stamped with the aimed name ("Lisa under Farah's
+                        # name", field report). LLM input only.
+                        if directed_to and directed_to in character_names:
+                            llm_messages = engine.mark_directed_voice(
+                                llm_messages, character_names[directed_to])
                         # Exactly ONE note in author's-note position (last user
                         # message): a text gets the answer-in-kind reminder, prose
                         # gets the length note — never both. Appending both handed
@@ -422,7 +431,8 @@ async def ws_rp(ws: WebSocket):
                                  persona.get("name") if persona else None,
                                  "You", "User"],
                                 [m.get("content", "") for m in all_msgs
-                                 if m.get("role") in ("character", "assistant")]),
+                                 if m.get("role") in ("character", "assistant")],
+                                directed_name=character_names.get(directed_to)),
                         )
 
                         # ── Lorebook injection (one helper: placement + console event) ──
@@ -595,6 +605,10 @@ async def ws_rp(ws: WebSocket):
                             llm_messages, block_markers = db.build_llm_messages_from_stack(
                                 stack_cfg, system_prompt, all_msgs,
                             )
+                            # Voice anchor, history side (see main-gen comment).
+                            if directed_to and directed_to in character_names:
+                                llm_messages = engine.mark_directed_voice(
+                                    llm_messages, character_names[directed_to])
                             # Exactly ONE note (see main-gen comment): text →
                             # answer-in-kind reminder, prose → length note.
                             llm_messages = engine.append_length_note(
@@ -605,7 +619,8 @@ async def ws_rp(ws: WebSocket):
                                      persona.get("name") if persona else None,
                                      "You", "User"],
                                     [m.get("content", "") for m in all_msgs
-                                     if m.get("role") in ("character", "assistant")]),
+                                     if m.get("role") in ("character", "assistant")],
+                                    directed_name=character_names.get(directed_to)),
                             )
 
                             # ── Lorebook injection (one helper: placement + console event) ──

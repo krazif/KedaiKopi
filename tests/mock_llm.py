@@ -148,6 +148,15 @@ async def chat_completions(request: Request):
         reply, finish = HUGE_REPLY, "stop"
     elif "LONGREPLY" in user_text:
         reply, finish = LONG_REPLY, "stop"
+    elif "Write this reply as " in user_text:
+        # Directed identity note reached the wire. Attribute to the NAME IN
+        # THE NOTE (not the system prompt) — if the note never arrived this
+        # branch doesn't fire at all, so the reply shape proves delivery.
+        nm = re.search(r"Write this reply as (.+?) —", user_text)
+        name = (nm.group(1).strip() if nm else "Name")
+        marked = any("(you)]:" in (mm.get("content") or "") for mm in messages)
+        reply = f"{name}: noted\n{name}: {'history-marked' if marked else 'history-UNMARKED'}"
+        reply, finish, plain = reply, "stop", True
     elif "PHONE TEXTS" in system_text and "TEXTS" in user_text:
         reply, finish, plain = reply_with_texts(speaker_from(messages)), "stop", True
     elif "last message was a text" in user_text and "This reply stays" in user_text:

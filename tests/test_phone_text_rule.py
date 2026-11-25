@@ -160,5 +160,72 @@ class PerReplyNoteTests(unittest.TestCase):
                                                ["Farah"], None))
 
 
+class DirectedVoiceTests(unittest.TestCase):
+    """Field report: picking Farah answers in Lisa's voice under Farah's
+    name. Voice, like length, is imitated from history — the system
+    prompt's `=== YOU ARE Farah ===` loses to recent `[Lisa]:` prose. The
+    manual fix that worked was typing @Farah AT the message, so the aim
+    belongs in the per-reply note; history also marks who "you" is."""
+
+    @staticmethod
+    def _msgs(last_user_content):
+        return [{"role": "system", "content": "sys"},
+                {"role": "user", "content": last_user_content}]
+
+    # ── identity rides the single note ──
+    def test_aimed_text_reply_note_carries_identity_and_reminder(self):
+        note = engine.per_reply_note(self._msgs("You: on my way"), "moderate",
+                                     ["Farah", "You", "User"], None,
+                                     directed_name="Farah")
+        self.assertIn("Write this reply as Farah", note)
+        self.assertIn("was a text", note)
+        self.assertNotIn("This reply stays", note)   # exclusivity holds
+
+    def test_aimed_prose_note_carries_identity_and_length(self):
+        note = engine.per_reply_note(self._msgs("I walk in."), "moderate",
+                                     ["Farah"], ["old reply"], directed_name="Farah")
+        self.assertIn("Write this reply as Farah", note)
+        self.assertIn("150 and 300", note)
+
+    def test_aimed_flexible_gets_identity_alone(self):
+        note = engine.per_reply_note(self._msgs("I walk in."), "flexible",
+                                     ["Farah"], None, directed_name="Farah")
+        self.assertIsNotNone(note)
+        self.assertIn("Write this reply as Farah", note)
+        self.assertNotIn("This reply stays", note)
+
+    def test_aimed_texting_style_still_anchors_voice(self):
+        note = engine.per_reply_note(self._msgs("You: hi"), "texting",
+                                     ["Farah", "You"], None, directed_name="Farah")
+        self.assertIn("Write this reply as Farah", note)
+
+    def test_unaimed_is_unchanged(self):
+        self.assertIsNone(engine.per_reply_note(self._msgs("I walk in."), "flexible",
+                                               ["Farah"], None))
+
+    # ── history marks who "you" is (the imitation lever) ──
+    def test_history_marks_the_aimed_speaker_as_you(self):
+        msgs = [{"role": "assistant", "content": "[Farah]: *waves*"},
+                {"role": "assistant", "content": "[Lisa]: *reads*"}]
+        out = engine.mark_directed_voice(msgs, "Farah")
+        self.assertEqual(out[0]["content"], "[Farah (you)]: *waves*")
+        self.assertEqual(out[1]["content"], "[Lisa]: *reads*")
+
+    def test_marking_leaves_user_and_raw_messages_alone(self):
+        msgs = [{"role": "user", "content": "[Farah]: hi"},      # his hand-typed lines
+                {"role": "assistant", "content": "no prefix prose"}]
+        out = engine.mark_directed_voice(msgs, "Farah")
+        self.assertEqual(out[0]["content"], "[Farah]: hi")
+        self.assertEqual(out[1]["content"], "no prefix prose")
+
+    def test_marking_is_idempotent_and_does_not_mutate_input(self):
+        msgs = [{"role": "assistant", "content": "[Farah]: *waves*"}]
+        out = engine.mark_directed_voice(msgs, "Farah")
+        out2 = engine.mark_directed_voice(out, "Farah")
+        self.assertEqual(out[0]["content"], "[Farah (you)]: *waves*")
+        self.assertEqual(out2[0]["content"], "[Farah (you)]: *waves*")
+        self.assertEqual(msgs[0]["content"], "[Farah]: *waves*")   # input intact
+
+
 if __name__ == "__main__":
     unittest.main()

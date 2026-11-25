@@ -405,6 +405,23 @@ async def scenario_i_directed(uri):
         check("aimed reply stored under the aimed character",
               got.get("character_name") == farah["name"],
               f"got={got.get('character_name')!r} want={farah['name']!r}")
+        # the identity note (voice anchor) reaches the wire — the mock
+        # attributes BY THE NOTE'S NAME (not the system prompt), so this
+        # line shape proves actual delivery
+        content = got.get("content") or ""
+        check("identity note reached the wire (lines named after the note)",
+              content.startswith(farah["name"] + ": noted"),
+              f"content={content[:60]!r}")
+        # second aimed turn: the first reply is now a Farah turn in history,
+        # so the (you) marking has something to mark — the mock reports it
+        await ws.send(json.dumps({"type": "user_message", "content": "and again",
+                                  "directed_to": "farah.json"}))
+        frames = await collect_until(ws, lambda f: f.get("type") == "character_message"
+                                     and not f.get("is_first_mes"))
+        content2 = frames[-1][1].get("content") or ""
+        check("history voice marking reached the wire",
+              "history-marked" in content2 and "history-UNMARKED" not in content2,
+              f"content={content2[:60]!r}")
 
         # auto mode on the same two-character session still answers
         await ws.send(json.dumps({"type": "user_message", "content": "hello there"}))

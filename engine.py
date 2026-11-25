@@ -1230,7 +1230,8 @@ def texting_reminder_for_reply(llm_messages: list, response_style: Optional[str]
 
 
 def per_reply_note(llm_messages: list, response_style: Optional[str],
-                   known_names: list, recent_replies: Optional[list] = None) -> Optional[str]:
+                   known_names: list, recent_replies: Optional[list] = None,
+                   directed_name: Optional[str] = None) -> Optional[str]:
     """Exactly ONE note for the final user turn.
 
     A text gets the answer-in-kind reminder and NEVER the length note: a
@@ -1238,11 +1239,54 @@ def per_reply_note(llm_messages: list, response_style: Optional[str],
     position handed the model a contradiction ("write substantial prose"
     next to "no narration") — it chose prose. Field regression, 2026-11-25.
     Narration keeps the length note as before; texting mode gets neither.
+
+    When a reply is aimed (directed_name), the identity sentence rides the
+    SAME single note: voice bleeds from history's recent prose — the field
+    fix that worked was typing @Farah at the message, i.e. identity at the
+    generation point, not just `=== YOU ARE Farah ===` far up the prompt.
     """
+    identity = None
+    if directed_name:
+        identity = (f"Write this reply as {directed_name} — {directed_name}'s "
+                    "voice and personality, not another character's.")
     texting = texting_reminder_for_reply(llm_messages, response_style, known_names)
     if texting:
-        return texting
-    return length_note_for_reply(response_style, recent_replies)
+        return f"{identity} {texting}" if identity else texting
+    length = length_note_for_reply(response_style, recent_replies)
+    if length:
+        return f"{identity} {length}" if identity else length
+    return identity
+
+
+def mark_directed_voice(llm_messages: list, directed_name: str) -> list:
+    """Mark the aimed character's past turns as `(you)` in LLM history.
+
+    In directed mode the history reads `[Farah]: ...` / `[Lisa]: ...` and
+    the model continues the MOST RECENT voice — if Lisa's prose dominates,
+    the reply comes out in Lisa's voice and gets stamped with the aimed
+    name ("Lisa under Farah's name", field report). Marking the aimed
+    turns `[Farah (you)]:` makes "whose voice am I continuing" explicit
+    where the model actually looks: the history itself.
+
+    Only assistant messages carrying a `[Speaker]:` prefix are rewritten,
+    and only for the aimed speaker. LLM input only — stored content and
+    the client are untouched. Returns a new list; input not mutated.
+    """
+    if not directed_name:
+        return list(llm_messages)
+    target = str(directed_name).strip().lower()
+    out = []
+    for m in llm_messages:
+        content = m.get("content") or ""
+        mm = re.match(r"^\[([^\]]+)\]:\s", content)
+        if m.get("role") == "assistant" and mm and mm.group(1).strip().lower() == target                 and " (you)]: " not in content:
+            head = f"[{mm.group(1)} (you)]:"
+            nm = dict(m)
+            nm["content"] = head + content[mm.end() - 1:]
+            out.append(nm)
+        else:
+            out.append(m)
+    return out
 
 
 def append_length_note(llm_messages: list, note: Optional[str]) -> list:
