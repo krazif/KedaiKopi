@@ -380,6 +380,39 @@ async def scenario_h_text_lines(uri):
               all(ln == ln.strip() for ln in text_lines))
 
 
+async def scenario_i_directed(uri):
+    """Routing contract: a message sent with directed_to is stored under
+    that character — the phone's To: chip rides entirely on this."""
+    print("I. Directed routing — aimed message stored under the aimed character")
+    import websockets
+
+    async with websockets.connect(uri, max_size=16 * 1024 * 1024) as ws:
+        await ws.send(json.dumps({"type": "start",
+                                  "characters": ["p_ramlee.json", "farah.json"]}))
+        started = await collect_until(ws, lambda f: f.get("type") == "session_started")
+        chars = started[-1][1]["characters"]
+        farah = next(c for c in chars if c["filename"] == "farah.json")
+        names = {c["name"] for c in chars}
+        await collect_until(ws, lambda f: f.get("type") == "character_message")
+
+        # aimed at Farah — reply must be attributed to her regardless of prefix
+        await ws.send(json.dumps({"type": "user_message", "content": "TEXTS",
+                                  "directed_to": "farah.json"}))
+        frames = await collect_until(ws, lambda f: f.get("type") == "character_message"
+                                     and not f.get("is_first_mes"))
+        got = frames[-1][1]
+        check("aimed reply stored under the aimed character",
+              got.get("character_name") == farah["name"],
+              f"got={got.get('character_name')!r} want={farah['name']!r}")
+
+        # auto mode on the same two-character session still answers
+        await ws.send(json.dumps({"type": "user_message", "content": "hello there"}))
+        frames = await collect_until(ws, lambda f: f.get("type") == "character_message")
+        check("auto mode answers on a two-character session",
+              frames[-1][1].get("character_name") in names,
+              f"got={frames[-1][1].get('character_name')!r}")
+
+
 def start_app(workdir, env_overrides, log_path):
     env = dict(os.environ)
     env.update(env_overrides)
@@ -440,6 +473,7 @@ async def main():
         await scenario_f_lorebook(APP_PORT)
         await scenario_g_texting(ws_uri)
         await scenario_h_text_lines(ws_uri)
+        await scenario_i_directed(ws_uri)
 
         # Swap the mock for one that refuses streaming, then re-run D
         mock.terminate()

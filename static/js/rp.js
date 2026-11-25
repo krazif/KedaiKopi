@@ -10,6 +10,9 @@ let rpResponseStyle = 'moderate';
 let rpPov = null;
 let rpInnerMonologue = false;
 let rpAutoContinue = true;  // auto-continue truncated responses
+let rpDirectTarget = '';     // '' = Auto; else a character filename — the
+                             // single source of truth the scene-bar select
+                             // and the phone's To: chip both mirror
 let rpLorebooks = []; // active lorebook filenames for RP session
 const rpStyleLabels = {short:'Short', moderate:'Moderate', long:'Long', flexible:'Flexible', texting:'Texting'};
 const rpStyleOrder = ['short','moderate','long','flexible','texting'];
@@ -191,6 +194,7 @@ function handleRPMessage(data) {
     }
     rpResponseStyle = data.response_style;
     initRPTextView(data.response_style);
+    rpDirectTarget = '';
     rpPov = data.pov || null;
     rpInnerMonologue = data.inner_monologue || false;
     rpAutoContinue = data.auto_continue !== undefined ? data.auto_continue : true;
@@ -228,6 +232,7 @@ function handleRPMessage(data) {
     }
     rpResponseStyle = data.response_style;
     initRPTextView(data.response_style);
+    rpDirectTarget = '';
     rpPov = data.pov || null;
     rpInnerMonologue = data.inner_monologue || false;
     rpAutoContinue = data.auto_continue !== undefined ? data.auto_continue : true;
@@ -502,15 +507,22 @@ function renderRPSceneBar() {
     personaSel.style.display = personasList.length > 0 ? 'block' : 'none';
   }
 
-  // Directed character selector — always visible with Auto as first option
+  // Directed character selector — a view of rpDirectTarget: the rebuild
+  // re-applies the state instead of resetting to Auto (the old bug that
+  // silently un-aimed a pick on any scene-bar interaction).
   const directSel = document.getElementById('rpDirectSelect');
   if (directSel) {
+    if (rpDirectTarget && !rpCharacters.some(c => c.filename === rpDirectTarget)) {
+      rpDirectTarget = '';
+    }
     directSel.style.display = 'block';
     let dhtml = '<option value="">Auto (LLM picks)</option>';
     rpCharacters.forEach(c => {
-      dhtml += `<option value="${escapeHtml(c.filename)}">${escapeHtml(c.name)}</option>`;
+      const sel = c.filename === rpDirectTarget ? ' selected' : '';
+      dhtml += `<option value="${escapeHtml(c.filename)}"${sel}>${escapeHtml(c.name)}</option>`;
     });
     directSel.innerHTML = dhtml;
+    updateRPToChip();
   }
 }
 
@@ -634,7 +646,7 @@ async function sendRPMessage() {
   }
   addRPMessage('user', sendContent, null, null, clientId, imagePath);
 
-  const directedTo = document.getElementById('rpDirectSelect')?.value || null;
+  const directedTo = rpDirectTarget || null;
   rpWS.send(JSON.stringify({type: 'user_message', content: sendContent, directed_to: directedTo || null, client_msg_id: clientId, image_path: imagePath}));
 
   input.value = '';
@@ -735,7 +747,38 @@ function queueSaveRPConsoleEvents() {
 }
 
 function onRPDirectChange() {
-  // Just updates the selected target — no server call needed
+  // The select is a view of the state — write through, then sync the chip.
+  rpDirectTarget = document.getElementById('rpDirectSelect')?.value || '';
+  updateRPToChip();
+}
+
+// ─── Phone To: chip — aim a text from inside the phone ────────────
+function updateRPToChip() {
+  const chip = document.getElementById('rpPhoneTo');
+  if (!chip) return;
+  const c = rpCharacters.find(cc => cc.filename === rpDirectTarget);
+  chip.textContent = 'To: ' + (c ? c.name : 'Everyone');
+}
+
+function toggleRPToMenu() {
+  const menu = document.getElementById('rpPhoneToMenu');
+  if (!menu) return;
+  if (menu.style.display === 'block') { menu.style.display = 'none'; return; }
+  let html = `<div class="rp-phone-to-item${rpDirectTarget ? '' : ' active'}" onclick="setRPDirectTarget('')">Everyone</div>`;
+  rpCharacters.forEach(c => {
+    html += `<div class="rp-phone-to-item${rpDirectTarget === c.filename ? ' active' : ''}" onclick="setRPDirectTarget('${escapeHtml(c.filename)}')">${escapeHtml(c.name)}</div>`;
+  });
+  menu.innerHTML = html;
+  menu.style.display = 'block';
+}
+
+function setRPDirectTarget(fn) {
+  rpDirectTarget = fn || '';
+  const sel = document.getElementById('rpDirectSelect');
+  if (sel) sel.value = rpDirectTarget;
+  updateRPToChip();
+  const menu = document.getElementById('rpPhoneToMenu');
+  if (menu) menu.style.display = 'none';
 }
 
 // ─── Texting (SMS) view ──────────────────────────────────────
@@ -800,7 +843,7 @@ function sendRPPhoneText() {
   const content = name + ': ' + text;
   const clientId = 'rp_' + (++_clientMsgCounter) + '_' + Date.now();
   addRPMessage('user', content, null, null, clientId, null);
-  const directedTo = document.getElementById('rpDirectSelect')?.value || null;
+  const directedTo = rpDirectTarget || null;
   rpWS.send(JSON.stringify({type: 'user_message', content, directed_to: directedTo || null,
                             client_msg_id: clientId, image_path: null}));
   input.value = '';

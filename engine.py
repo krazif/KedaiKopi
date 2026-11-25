@@ -528,6 +528,9 @@ def build_rp_system_prompt(cards: list[dict], persona: dict = None,
         parts.append("italics inside it or around it. Narration stays outside the line.")
         parts.append("A reply may be one or more of these lines with no narration at all —")
         parts.append("when you are answering the phone, just text.")
+        parts.append("Answer in kind: if the user's latest message is a text (a `Name: message`")
+        parts.append("line), reply with one or more `Name: message` lines of your own — not")
+        parts.append("narration. Narrate only when the scene itself calls for it.")
         parts.append("")
     parts.append("")
 

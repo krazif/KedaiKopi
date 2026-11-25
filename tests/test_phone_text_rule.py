@@ -38,6 +38,13 @@ class PhoneTextRuleTests(unittest.TestCase):
         p = rp_prompt("moderate")
         self.assertIn("A reply may be one or more of these lines with no narration at all", p)
 
+    def test_a_text_is_answered_with_texts(self):
+        # Razif's field report: he texted and got narration back in the chat.
+        # A text must be answered in kind — texts, not prose.
+        p = rp_prompt("moderate")
+        self.assertIn("Answer in kind: if the user's latest message is a text", p)
+        self.assertIn("reply with one or more `Name: message` lines of your own", p)
+
     def test_rule_stays_out_of_texting_mode(self):
         # texting mode's directive owns the format; a competing rule would
         # tell the model to prefix `Name:` lines it must write bare.
