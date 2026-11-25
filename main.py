@@ -18,6 +18,24 @@ MAX_BG_SIZE = 10 * 1024 * 1024  # 10 MB
 app = FastAPI(title="KedaiKopi")
 
 
+@app.middleware("http")
+async def static_always_revalidate(request, call_next):
+    """Static assets must revalidate on every load.
+
+    Without this the browser applies heuristic freshness to /static/*
+    (10% of the file's age) and can serve a mix of old and new scripts
+    after a push — e.g. a new rp.js calling a function only the new
+    messages.js has, which kills the message handler at runtime. With
+    no-cache every reload asks the ETag and gets a cheap 304 when
+    nothing changed, or the fresh file when it did — never a mix.
+    """
+    response = await call_next(request)
+    if request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
+
 @app.get("/")
 async def index():
     """Serve the main HTML page with cache-busting headers."""
