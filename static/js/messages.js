@@ -6,10 +6,12 @@ const VIRTUAL_SCROLL_BATCH = 50; // default number of messages to render
 let rpMessages = []; // full message array for RP mode
 let rpVisibleCount = { value: VIRTUAL_SCROLL_BATCH };
 let rpObserver = null;
+let rpPhoneVisible = { value: VIRTUAL_SCROLL_BATCH };   // phone pane has its own scroll-back
+let rpPhoneObserver = null;
 
 function initVirtualScroll(containerId, messagesArr, visibleCountObj, observerRef) {
   const container = document.getElementById(containerId);
-  if (!container) return;
+  if (!container) return null;
   // Clean up old observer
   if (observerRef) observerRef.disconnect();
   // Create sentinel
@@ -39,7 +41,8 @@ function initVirtualScroll(containerId, messagesArr, visibleCountObj, observerRe
     }
   }, { root: container, threshold: 0 });
   obs.observe(sentinel);
-  observerRef = obs;
+  observerRef = obs;   // (local — callers must use the return value)
+  return obs;
 }
 
 function renderVirtualMessages(containerId, messagesArr, visibleCount) {
@@ -57,13 +60,19 @@ function renderVirtualMessages(containerId, messagesArr, visibleCount) {
   // Render messages from start to end
   for (let i = start; i < total; i++) {
     const msg = messagesArr[i];
-    const frag = buildRPMessageDOM(msg, i);
+    const frag = (containerId === 'rpPhoneMessages') ? buildTextMessageDOM(msg, i)
+                                                     : buildRPMessageDOM(msg, i);
     container.appendChild(frag);
   }
   // Scroll to bottom on new messages (only if already near bottom)
   const wasNearBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 100;
   if (wasNearBottom || sentinel === null) {
     container.scrollTop = container.scrollHeight;
+  }
+  // The phone pane mirrors the prose pane whenever the dock is open
+  if (containerId === 'rpChatMessages'
+      && typeof isRPPhoneDockOpen === 'function' && isRPPhoneDockOpen()) {
+    renderVirtualMessages('rpPhoneMessages', messagesArr, rpPhoneVisible.value);
   }
 }
 
@@ -129,7 +138,6 @@ function buildRPActions(msg, index) {
 }
 
 function buildRPMessageDOM(msg, index) {
-  if (typeof isRPTextView === 'function' && isRPTextView()) return buildTextMessageDOM(msg, index);
   const frag = document.createDocumentFragment();
   // Image-only message: just a middle balloon, no chat bubble
   if (msg.imagePath && (!msg.content || !msg.content.trim())) {
@@ -355,9 +363,13 @@ function clearRPChat() {
   rpMessages = [];
   txSeen.clear();
   rpVisibleCount.value = VIRTUAL_SCROLL_BATCH;
+  rpPhoneVisible.value = VIRTUAL_SCROLL_BATCH;
   const container = document.getElementById('rpChatMessages');
   if (container) container.innerHTML = '';
+  const phone = document.getElementById('rpPhoneMessages');
+  if (phone) phone.innerHTML = '';
   if (rpObserver) { rpObserver.disconnect(); rpObserver = null; }
+  if (rpPhoneObserver) { rpPhoneObserver.disconnect(); rpPhoneObserver = null; }
 }
 
 // ─── End Virtual Scrolling ──────────────────────
@@ -375,18 +387,35 @@ function startStreamBubble(label) {
   const container = document.getElementById('rpChatMessages');
   if (!container) return;
   const div = document.createElement('div');
-  const tv = typeof isRPTextView === 'function' && isRPTextView();
   div.id = 'streamBubble';
-  div.className = tv ? 'tx-msg character streaming' : 'rp-msg character streaming';
+  div.className = 'rp-msg character streaming';
   const labelEl = document.createElement('span');
-  labelEl.className = tv ? 'tx-name' : 'rp-msg-label';
+  labelEl.className = 'rp-msg-label';
   labelEl.textContent = label || '';
   div.appendChild(labelEl);
   const contentEl = document.createElement('div');
-  contentEl.className = tv ? 'tx-bubble tx-streaming' : 'rp-msg-content';
+  contentEl.className = 'rp-msg-content';
   div.appendChild(contentEl);
   container.appendChild(div);
-  _streamBubble = { containerId: 'rpChatMessages', el: div, contentEl, text: '' };
+  _streamBubble = { containerId: 'rpChatMessages', el: div, contentEl, text: '',
+                    phoneEl: null, phoneContentEl: null };
+  // The phone pane grows its own bubble alongside when the dock is open
+  if (typeof isRPPhoneDockOpen === 'function' && isRPPhoneDockOpen()) {
+    const pdiv = document.createElement('div');
+    pdiv.id = 'streamBubblePhone';
+    pdiv.className = 'tx-msg character streaming';
+    const plabel = document.createElement('span');
+    plabel.className = 'tx-name';
+    plabel.textContent = label || '';
+    pdiv.appendChild(plabel);
+    const pcontent = document.createElement('div');
+    pcontent.className = 'tx-bubble tx-streaming';
+    pdiv.appendChild(pcontent);
+    const pcont = document.getElementById('rpPhoneMessages');
+    if (pcont) { pcont.appendChild(pdiv); pcont.scrollTop = pcont.scrollHeight; }
+    _streamBubble.phoneEl = pdiv;
+    _streamBubble.phoneContentEl = pcontent;
+  }
 }
 
 function appendStreamText(text) {
@@ -398,17 +427,21 @@ function appendStreamText(text) {
   // The virtual scroller rebuilds the container — re-attach if it dropped us
   if (!b.el.isConnected) container.appendChild(b.el);
   b.text += text;
-  let shown = b.text;
-  if (typeof isRPTextView === 'function' && isRPTextView()) {
-    shown = shown.replace(/^[ \t]*(?:···|\.\.\.|…)[ \t]*$/gm, '');  // no separator flash mid-stream
+  b.contentEl.innerHTML = formatMessage(b.text);          // prose: raw, as stored
+  if (b.phoneContentEl) {
+    // phone: separators hidden mid-stream (the final render splits them)
+    b.phoneContentEl.innerHTML = formatMessage(
+      b.text.replace(/^[ \t]*(?:···|\.\.\.|…)[ \t]*$/gm, ''));
+    const pcont = document.getElementById('rpPhoneMessages');
+    if (pcont) pcont.scrollTop = pcont.scrollHeight;
   }
-  b.contentEl.innerHTML = formatMessage(shown);
   if (wasNearBottom) container.scrollTop = container.scrollHeight;
 }
 
 function clearStreamBubble() {
   if (_streamBubble) {
     _streamBubble.el.remove();
+    if (_streamBubble.phoneEl) _streamBubble.phoneEl.remove();
     _streamBubble = null;
   }
 }

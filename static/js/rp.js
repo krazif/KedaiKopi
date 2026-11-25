@@ -213,6 +213,7 @@ function handleRPMessage(data) {
      // Apply per-session bg or fall back to global
      applyBgImage(data.bg_image || localStorage.getItem('cs_bg_image') || '', parseFloat(localStorage.getItem('cs_bg_overlay')) ?? 0.85, false);
      loadRPSessions();
+    applyRPPhoneDock();  // after clearRPChat: re-seed, re-init the phone scroll
    } else if (data.type === 'session_resumed') {
      rpActiveSessionId = data.session_id;
      rpCharacters = data.characters;
@@ -282,9 +283,9 @@ function handleRPMessage(data) {
       });
     }
     txSeedSeen();  // seeded history must not replay the burst animation
-    rpVisibleCount.value = Math.min(VIRTUAL_SCROLL_BATCH, rpMessages.length);
+    rpVisibleCount.value = VIRTUAL_SCROLL_BATCH;
     renderVirtualMessages('rpChatMessages', rpMessages, rpVisibleCount.value);
-    initVirtualScroll('rpChatMessages', rpMessages, rpVisibleCount, rpObserver);
+    rpObserver = initVirtualScroll('rpChatMessages', rpMessages, rpVisibleCount, rpObserver);
     // A socket dropped mid-generation leaves this flag stuck true — the
     // generation died with the old connection, so re-enable the input.
     rpIsWaiting = false;
@@ -299,6 +300,7 @@ function handleRPMessage(data) {
      document.querySelectorAll('.rp-session-item').forEach(el => {
        el.classList.toggle('active', parseInt(el.dataset.sessionId) === rpActiveSessionId);
      });
+    applyRPPhoneDock();  // after clearRPChat: re-seed, re-init the phone scroll
     } else if (data.type === 'character_message') {
       clearStreamBubble();
       if (data.regenerated) {
@@ -485,6 +487,8 @@ function renderRPSceneBar() {
   }
 
   bar.innerHTML = html;
+  const _phTitle = document.getElementById('rpPhoneTitle');
+  if (_phTitle) _phTitle.textContent = rpCharacters.length ? rpCharacters.map(c => c.name).join(', ') : 'Texting';
 
   // Persona selector — now lives in the input area
   const personaSel = document.getElementById('rpPersonaBar');
@@ -525,7 +529,7 @@ function addRPMessage(role, content, speaker, messageId, clientId, imagePath, im
 
   // Init observer if not yet set up
   if (!rpObserver) {
-    initVirtualScroll('rpChatMessages', rpMessages, rpVisibleCount, rpObserver);
+    rpObserver = initVirtualScroll('rpChatMessages', rpMessages, rpVisibleCount, rpObserver);
   }
 }
 
@@ -746,8 +750,37 @@ function toggleRPTextView(force) {
   if (rpActiveSessionId != null) {
     localStorage.setItem('kk_txview_' + rpActiveSessionId, rpTextView ? '1' : '0');
   }
+  applyRPPhoneDock();
   renderRPSceneBar();
-  renderVirtualMessages('rpChatMessages', rpMessages, rpVisibleCount.value);
+}
+
+function isRPPhoneDockOpen() {
+  const d = document.getElementById('rpPhoneDock');
+  return !!d && d.style.display === 'flex';
+}
+
+// Show/hide the phone pane beside the prose chat. Opening seeds the
+// animation set first (history must not replay the burst pop-in) and
+// gives the pane its own scroll-back observer.
+function applyRPPhoneDock() {
+  const dock = document.getElementById('rpPhoneDock');
+  if (!dock) return;
+  const show = rpTextView && rpActiveSessionId != null;
+  dock.style.display = show ? 'flex' : 'none';
+  if (show) {
+    txSeedSeen();
+    if (!rpPhoneObserver) {
+      renderVirtualMessages('rpPhoneMessages', rpMessages, rpPhoneVisible.value);
+      rpPhoneObserver = initVirtualScroll('rpPhoneMessages', rpMessages, rpPhoneVisible, rpPhoneObserver);
+    }
+    const p = document.getElementById('rpPhoneMessages');
+    if (p) p.scrollTop = p.scrollHeight;
+    const t = document.getElementById('rpPhoneTitle');
+    if (t) t.textContent = rpCharacters.length ? rpCharacters.map(c => c.name).join(', ') : 'Texting';
+  } else if (rpPhoneObserver) {
+    rpPhoneObserver.disconnect();
+    rpPhoneObserver = null;
+  }
 }
 
 function rpUpdateSetting(key, value) {

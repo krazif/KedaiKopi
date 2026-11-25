@@ -340,6 +340,22 @@ header .status.connected { color:var(--green); }
 .tx-new .tx-bubble { animation:txPop .26s ease both; animation-delay:calc(var(--i, 0) * .38s); }
 .tx-new .tx-name { animation:txPop .26s ease both; }
 .tx-msg.streaming .tx-bubble { opacity:.85; }
+
+/* Side-by-side phone dock — the SMS pane is a small smartphone beside the prose */
+.rp-body { flex:1; display:flex; min-height:0; }
+.rp-chat-col { flex:1; display:flex; flex-direction:column; min-width:0; }
+.rp-phone-dock { flex:none; width:336px; min-height:0; padding:14px 14px 10px; border-left:1px solid var(--border); background:var(--surface); }
+.rp-phone { flex:1; display:flex; flex-direction:column; min-height:0; border-radius:26px; border:2px solid #2b313a; background:#0a0d12; box-shadow:0 12px 34px rgba(0,0,0,.55), inset 0 0 0 1px rgba(255,255,255,.03); overflow:hidden; position:relative; }
+.rp-phone-notch { width:78px; height:15px; background:#000; border-radius:0 0 11px 11px; margin:0 auto; flex:none; border:1px solid #1a1f26; border-top:none; }
+.rp-phone-header { display:flex; align-items:center; gap:7px; padding:7px 14px 8px; border-bottom:1px solid #1a1f26; flex:none; }
+.rp-phone-dot { width:8px; height:8px; border-radius:50%; background:var(--green); box-shadow:0 0 6px var(--green); flex:none; }
+.rp-phone-header #rpPhoneTitle { font-size:13px; font-weight:600; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.rp-phone-messages { flex:1; overflow-y:auto; padding:12px 10px; display:flex; flex-direction:column; gap:10px; min-height:0; }
+.rp-phone-messages .msg-image-balloon img { max-height:220px; }
+.rp-phone-home { flex:none; padding:5px 0 7px; display:flex; justify-content:center; }
+.rp-phone-home span { width:108px; height:5px; border-radius:3px; background:#3a4149; }
+@media (max-width:1400px) { .rp-phone-dock { width:300px; padding:10px; } }
+@media (max-width:1150px) { .rp-phone-dock { width:264px; padding:8px; } }
 .rp-msg .rp-msg-actions a:hover { color:var(--red); opacity:1; }
 .rp-msg .rp-msg-actions .msg-word-count { color:var(--text-dim); opacity:0.5; font-size:11px; }
 .rp-msg .rp-msg-actions a.rp-regenerate-link:hover { color:var(--accent); opacity:1; }
@@ -614,13 +630,29 @@ header .status.connected { color:var(--green); }
     <div class="rp-scene-bar" id="rpSceneBar">
       <span style="color:var(--text-dim);font-size:13px" id="rpScenePlaceholder">No active session. Click "+ New" to start a roleplay.</span>
     </div>
-    <div class="rp-chat-messages" id="rpChatMessages">
-      <div class="analysis-empty" id="rpChatEmpty">Start a new RP session to begin.</div>
-    </div>
-    <!-- Author's Note (RP) -->
-    <div class="author-note-bar" id="rpAuthorNoteBar" style="display:none">
-      <div class="author-note-toggle" onclick="toggleRPAuthorNote()">📝 Author's Note <span id="rpAuthorNoteArrow">▸</span></div>
-      <textarea class="author-note-field" id="rpAuthorNoteInput" placeholder="Scene direction, character resistance, OOC notes... (appended to your message as [Author's Note: ...])" onkeydown="handleAuthorNoteKey(event, 'rp')"></textarea>
+    <!-- Side-by-side body: prose chat (left) + optional phone dock (right) -->
+    <div class="rp-body" id="rpBody">
+      <div class="rp-chat-col">
+        <div class="rp-chat-messages" id="rpChatMessages">
+          <div class="analysis-empty" id="rpChatEmpty">Start a new RP session to begin.</div>
+        </div>
+        <!-- Author's Note (RP) -->
+        <div class="author-note-bar" id="rpAuthorNoteBar" style="display:none">
+          <div class="author-note-toggle" onclick="toggleRPAuthorNote()">📝 Author's Note <span id="rpAuthorNoteArrow">▸</span></div>
+          <textarea class="author-note-field" id="rpAuthorNoteInput" placeholder="Scene direction, character resistance, OOC notes... (appended to your message as [Author's Note: ...])" onkeydown="handleAuthorNoteKey(event, 'rp')"></textarea>
+        </div>
+      </div>
+      <aside class="rp-phone-dock" id="rpPhoneDock" style="display:none">
+        <div class="rp-phone">
+          <div class="rp-phone-notch"></div>
+          <div class="rp-phone-header">
+            <span class="rp-phone-dot"></span>
+            <span id="rpPhoneTitle">Texting</span>
+          </div>
+          <div class="rp-phone-messages" id="rpPhoneMessages"></div>
+          <div class="rp-phone-home"><span></span></div>
+        </div>
+      </aside>
     </div>
     <div class="chat-input" id="rpInputArea" style="display:none">
       <button class="btn-attach" id="rpAttachBtn" onclick="document.getElementById('rpImageUpload').click()" disabled title="Attach image">🖼️</button>
