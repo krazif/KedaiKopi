@@ -316,9 +316,10 @@ def build_system_prompt(card: dict, user_name: str = "User", response_style: str
     _pov = _pov_directive(pov)
     if _pov:
         parts.append(f"\n\n{_pov}")
-    # Inner monologue directive
+    # Inner monologue directive — not for texting: a bubble carries no
+    # Thoughts block (texting style owns its format, like PHONE TEXTS).
     _im = _inner_monologue_directive(inner_monologue)
-    if _im:
+    if _im and response_style != "texting":
         parts.append(f"\n\n{_im}")
     return "\n".join(parts)
 
@@ -545,9 +546,10 @@ def build_rp_system_prompt(cards: list[dict], persona: dict = None,
     if _pov:
         parts.append(_pov)
         parts.append("")
-    # Inner monologue directive
+    # Inner monologue directive — suppressed in texting mode: a bubble
+    # carries no `Thoughts:` block (his sessions run the toggle ON).
     _im = _inner_monologue_directive(inner_monologue)
-    if _im:
+    if _im and response_style != "texting":
         parts.append(_im)
         parts.append("")
 
@@ -1132,7 +1134,7 @@ _STYLE_LENGTH_NOTES = {
     "moderate": "[IMPORTANT — Keep your response length between 150–300 words. Never end on handover cues; finish naturally.]",
     "long": "[IMPORTANT — Keep your response length above 300 words. Include dialogue, actions, internal thoughts, body language, and emotional detail. Never end on handover cues; finish naturally.]",
     "flexible": "[IMPORTANT — Choose your response length naturally based on the scene. Keep it concise (up to 150 words) for dialogue and action; write longer (above 150 words) for scene transitions, establishing shots, and plot developments. Never end on handover cues; finish naturally.]",
-    "texting": "[IMPORTANT — Texting mode: you are sending text messages, not writing prose. Reply ONLY with the text inside the bubbles — no narration, no action asterisks, no scene description, no speaker tags. Write like a real texter: lowercase, informal, fragments, abbreviations, ellipses, emoji. Keep every bubble to 1-3 short lines; split a thought across bubbles by putting a line containing only ··· between them. Total under 150 words. Even if earlier messages read as prose, keep texting. Never end on handover cues; finish naturally.]",
+    "texting": "[IMPORTANT — Texting mode: you are sending text messages, not writing prose. Reply ONLY with the text inside the bubbles — no narration, no inner monologue, no action asterisks, no scene description, no speaker tags. Write like a real texter: lowercase, informal, fragments, abbreviations, ellipses, emoji. Keep every bubble to 1-3 short lines; split a thought across bubbles by putting a line containing only ··· between them. Total under 150 words. Even if earlier messages read as prose, keep texting. Never end on handover cues; finish naturally.]",
 }
 
 
@@ -1222,7 +1224,8 @@ def texting_reminder_for_reply(llm_messages: list, response_style: Optional[str]
             example_name = (canonical.split()[0] if canonical else None) or "Name"
             return ("The user's last message was a text. Reply ONLY with text lines — "
                     f"your own `Name: message` lines (e.g. `{example_name}: on my way`), "
-                    "no narration, no actions, no scene prose. A text gets a text back.")
+                    "no narration, no actions, no scene prose. No inner monologue and no "
+                    "`Thoughts:` block — those belong to narration. A text gets a text back.")
     return None
 
 

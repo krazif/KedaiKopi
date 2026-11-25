@@ -75,6 +75,15 @@ class TextingReminderTests(unittest.TestCase):
         # no escape hatch: the phone input asked for a text, it gets a text
         self.assertNotIn("Narrate only if", note)
 
+    def test_a_text_reply_carries_no_inner_monologue(self):
+        # his sessions run with the Thoughts toggle ON; a text reply must
+        # not drag a `Thoughts:` block into it
+        note = engine.texting_reminder_for_reply(
+            [{"role": "user", "content": "You: on my way"}],
+            "moderate", ["Farah", "You", "User"])
+        self.assertIn("No inner monologue", note)
+        self.assertIn("Thoughts", note)
+
     def test_stays_silent_for_narration(self):
         # a prose message must never be told to answer with texts
         self.assertIsNone(engine.texting_reminder_for_reply(

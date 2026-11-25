@@ -16,7 +16,7 @@ import engine
 # The one authoritative wording — kept in engine._STYLE_LENGTH_NOTES.
 TEXTING_DIRECTIVE = (
     "[IMPORTANT — Texting mode: you are sending text messages, not writing "
-    "prose. Reply ONLY with the text inside the bubbles — no narration, no "
+    "prose. Reply ONLY with the text inside the bubbles — no narration, no inner monologue, no "
     "action asterisks, no scene description, no speaker tags. Write like a "
     "real texter: lowercase, informal, fragments, abbreviations, ellipses, "
     "emoji. Keep every bubble to 1-3 short lines; split a thought across "
@@ -32,6 +32,18 @@ class TextingInstructionTests(unittest.TestCase):
         # check, and this text goes verbatim into every texting-mode prompt.
         self.assertEqual(engine.response_style_instruction("texting"),
                          TEXTING_DIRECTIVE)
+
+    def test_texting_prompt_suppresses_inner_monologue(self):
+        # his sessions run with the Thoughts toggle ON — texting mode must
+        # not carry the "mandatory in every response" directive
+        card = {"data": {"name": "Lisa", "description": "A cook.", "personality": "warm."}}
+        persona = {"name": "Razif"}
+        texting = engine.build_rp_system_prompt([card], persona, "texting",
+                                                inner_monologue=True)
+        rp = engine.build_rp_system_prompt([card], persona, "moderate",
+                                           inner_monologue=True)
+        self.assertNotIn("INNER MONOLOGUE: ON", texting)
+        self.assertIn("INNER MONOLOGUE: ON", rp)   # narration keeps it
 
     def test_texting_ceiling_sits_above_the_word_target(self):
         # Under 150 words ≈ 230 tokens at 1.44–1.59 tok/word; bursts carry
