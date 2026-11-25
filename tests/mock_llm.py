@@ -154,7 +154,11 @@ async def chat_completions(request: Request):
         # branch doesn't fire at all, so the reply shape proves delivery.
         nm = re.search(r"Write this reply as (.+?) —", user_text)
         name = (nm.group(1).strip() if nm else "Name")
-        marked = any("(you)]:" in (mm.get("content") or "") for mm in messages)
+        # the marking = aimed history turns arrive UNLABELED (plain prose);
+        # labeled `[Name]:` turns are other characters
+        marked = any((mm.get("content") or "").strip()
+                     and not (mm.get("content") or "").lstrip().startswith("[")
+                     for mm in messages if mm.get("role") == "assistant")
         reply = f"{name}: noted\n{name}: {'history-marked' if marked else 'history-UNMARKED'}"
         reply, finish, plain = reply, "stop", True
     elif "PHONE TEXTS" in system_text and "TEXTS" in user_text:

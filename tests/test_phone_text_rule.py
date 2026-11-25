@@ -204,12 +204,25 @@ class DirectedVoiceTests(unittest.TestCase):
                                                ["Farah"], None))
 
     # ── history marks who "you" is (the imitation lever) ──
-    def test_history_marks_the_aimed_speaker_as_you(self):
+    # The FIRST design labeled self turns `[Farah (you)]:` — and the model
+    # echoed that decorated name as its sender (field: "[Farah (you)]: bye
+    # la..."), corrupting the text protocol. A marker with a line-prefix
+    # SHAPE is a format models copy. New contract: self turns lose the
+    # label entirely — plain prose IS the output format, so imitation now
+    # pulls toward exactly what we want; others keep their `[Name]:` label.
+    def test_history_unlabels_the_aimed_speaker(self):
         msgs = [{"role": "assistant", "content": "[Farah]: *waves*"},
                 {"role": "assistant", "content": "[Lisa]: *reads*"}]
         out = engine.mark_directed_voice(msgs, "Farah")
-        self.assertEqual(out[0]["content"], "[Farah (you)]: *waves*")
+        self.assertEqual(out[0]["content"], "*waves*")
         self.assertEqual(out[1]["content"], "[Lisa]: *reads*")
+
+    def test_marking_cleans_old_decorated_echoes(self):
+        # his stored history already carries the corrupt form — it must
+        # flow through the history rebuild as clean plain prose
+        msgs = [{"role": "assistant", "content": "[Farah (you)]: bye la\nFarah: 330 tmrw"}]
+        out = engine.mark_directed_voice(msgs, "Farah")
+        self.assertEqual(out[0]["content"], "bye la\nFarah: 330 tmrw")
 
     def test_marking_leaves_user_and_raw_messages_alone(self):
         msgs = [{"role": "user", "content": "[Farah]: hi"},      # his hand-typed lines
@@ -222,9 +235,34 @@ class DirectedVoiceTests(unittest.TestCase):
         msgs = [{"role": "assistant", "content": "[Farah]: *waves*"}]
         out = engine.mark_directed_voice(msgs, "Farah")
         out2 = engine.mark_directed_voice(out, "Farah")
-        self.assertEqual(out[0]["content"], "[Farah (you)]: *waves*")
-        self.assertEqual(out2[0]["content"], "[Farah (you)]: *waves*")
+        self.assertEqual(out[0]["content"], "*waves*")
+        self.assertEqual(out2[0]["content"], "*waves*")
         self.assertEqual(msgs[0]["content"], "[Farah]: *waves*")   # input intact
+
+    # ── output-side echo strip: bracketed prefix is never legitimate in a
+    #    directed reply (prose has no label; texts are bare `Name: msg`) ──
+    def test_echo_strip_removes_a_leading_bracketed_label(self):
+        self.assertEqual(engine.strip_bracketed_echo("[Farah (you)]: bye la"), "bye la")
+        self.assertEqual(engine.strip_bracketed_echo("[Lisa]: hi"), "hi")
+
+    def test_echo_strip_protects_bare_text_lines(self):
+        # the text protocol is `Name: message` — must NEVER be stripped
+        self.assertEqual(engine.strip_bracketed_echo("Farah: 330 tmrw"), "Farah: 330 tmrw")
+        self.assertEqual(engine.strip_bracketed_echo("Farah: a\nFarah: b"), "Farah: a\nFarah: b")
+
+    def test_echo_strip_leaves_plain_prose_and_mid_brackets(self):
+        self.assertEqual(engine.strip_bracketed_echo("plain prose"), "plain prose")
+        self.assertEqual(engine.strip_bracketed_echo("she paused [softly] then spoke"),
+                         "she paused [softly] then spoke")
+
+    # ── the directed prompt teaches the transcript shape ──
+    def test_directed_prompt_explains_unlabeled_self_turns(self):
+        card = {"data": {"name": "Farah", "description": "Sister."}}
+        persona = {"name": "Razif"}
+        prompt = engine.build_rp_system_prompt([card], persona, "moderate",
+                                               directed_character="Farah")
+        self.assertIn("without a label", prompt)
+        self.assertIn("unlabeled voice is yours", prompt)
 
 
 if __name__ == "__main__":

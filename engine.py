@@ -507,6 +507,7 @@ def build_rp_system_prompt(cards: list[dict], persona: dict = None,
     if directed_character:
         # Directed mode: 1-on-1 style, no [CharacterName]: prefix
         parts.append(f"- You are {directed_name}. Write your dialogue and actions directly, without any [CharacterName]: prefix.")
+        parts.append("- In the history above, your own past turns appear without a label; other characters' turns carry a [Name]: label. The unlabeled voice is yours — keep writing that way.")
         parts.append(f"- Do NOT write dialogue for any other character.")
         parts.append(f"- Stay fully in character — your voice, your personality.")
         parts.append(f"- If another character would react, you may briefly note it in your POV, but do not write their dialogue.")
@@ -1259,34 +1260,62 @@ def per_reply_note(llm_messages: list, response_style: Optional[str],
 
 
 def mark_directed_voice(llm_messages: list, directed_name: str) -> list:
-    """Mark the aimed character's past turns as `(you)` in LLM history.
+    """Unlabel the aimed character's past turns in LLM history.
 
     In directed mode the history reads `[Farah]: ...` / `[Lisa]: ...` and
-    the model continues the MOST RECENT voice — if Lisa's prose dominates,
-    the reply comes out in Lisa's voice and gets stamped with the aimed
-    name ("Lisa under Farah's name", field report). Marking the aimed
-    turns `[Farah (you)]:` makes "whose voice am I continuing" explicit
-    where the model actually looks: the history itself.
+    the model continues the MOST RECENT voice — if another character's
+    prose dominates, the reply comes out in that voice and gets stamped
+    with the aimed name ("Lisa under Farah's name", field report). The
+    first design labeled self turns `[Farah (you)]:` — and the model
+    ECHOED that decorated name as its sender ("[Farah (you)]: bye la..."),
+    corrupting the text protocol: a marker with a line-prefix SHAPE is a
+    format models copy.
 
-    Only assistant messages carrying a `[Speaker]:` prefix are rewritten,
-    and only for the aimed speaker. LLM input only — stored content and
-    the client are untouched. Returns a new list; input not mutated.
+    New contract: self turns lose the label entirely — plain prose IS the
+    output format directed mode asks for, so imitation now pulls toward
+    exactly what we want, and no decorated name exists to echo. Others
+    keep their `[Name]:` label ("the unlabeled voice is yours"). Decorated
+    echoes from old stored messages (`[Farah (you)]: ...`) are cleaned to
+    plain prose too.
+
+    Assistant messages carrying a `[Speaker]:` prefix only. LLM input
+    only — stored content and the client are untouched. Returns a new
+    list; input not mutated. Idempotent.
     """
     if not directed_name:
         return list(llm_messages)
     target = str(directed_name).strip().lower()
+
+    def _self_label(label: str) -> bool:
+        lab = label.strip().lower()
+        return lab == target or lab.startswith(target + " (")
+
     out = []
     for m in llm_messages:
         content = m.get("content") or ""
-        mm = re.match(r"^\[([^\]]+)\]:\s", content)
-        if m.get("role") == "assistant" and mm and mm.group(1).strip().lower() == target                 and " (you)]: " not in content:
-            head = f"[{mm.group(1)} (you)]:"
+        mm = re.match(r"^\[([^\]]+)\]:\s?", content)
+        if m.get("role") == "assistant" and mm and _self_label(mm.group(1)):
             nm = dict(m)
-            nm["content"] = head + content[mm.end() - 1:]
+            nm["content"] = content[mm.end():]
             out.append(nm)
         else:
             out.append(m)
     return out
+
+
+def strip_bracketed_echo(content: str) -> str:
+    """Drop ONE leading `[Someone]:` label from a directed reply.
+
+    In directed mode the reply is prose with no label (texts are bare
+    `Name: message` lines), so a bracketed leader is always a format echo
+    from history — the field bug where the model opened with
+    `[Farah (you)]: bye la...`. Bare `Name:` is the text protocol and is
+    NEVER touched here. Only the very start of the content is considered.
+    """
+    if not content:
+        return content
+    mm = re.match(r"^\[[^\]]+\]:\s?", content)
+    return content[mm.end():] if mm else content
 
 
 def append_length_note(llm_messages: list, note: Optional[str]) -> list:

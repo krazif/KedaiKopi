@@ -162,12 +162,35 @@ function knownTextSenders() {
 }
 
 function matchTextLine(line, names) {
-  const t = line.trim();
+  let t = line.trim();
+  // Tolerate label shapes the model has actually produced: a bracketed
+  // label (`[Farah]: msg`, and the old marking echo `[Farah (you)]: msg`)
+  // is a sender line all the same — field evidence: the history marking
+  // leaked into replies and stranded the first text in the chat scene.
+  if (t.startsWith('[')) {
+    const bclose = t.indexOf(']:');
+    if (bclose !== -1) t = t.slice(1, bclose) + ':' + t.slice(bclose + 2);
+  }
   for (const n of names) {
     if (t.length > n.length + 1 &&
         t.slice(0, n.length + 1).toLowerCase() === (n + ':').toLowerCase()) {
       const text = t.slice(n.length + 1).trim();
       if (text) return { name: n, text };
+    }
+    // Decorated echo from the old history marking (`Farah (you): msg`) —
+    // accept it and report the plain name, so already-stored messages
+    // extract into bubbles instead of stranding in the chat (field bug:
+    // a 2-text reply showed 1 bubble, the first text sat in the scene).
+    if (t.length > n.length + 1 &&
+        t.slice(0, n.length + 1).toLowerCase() === (n + ' ').toLowerCase()) {
+      const rest = t.slice(n.length + 1);
+      if (rest.startsWith('(')) {
+        const close = rest.indexOf('):');
+        if (close !== -1) {
+          const text = rest.slice(close + 2).trim();
+          if (text) return { name: n, text };
+        }
+      }
     }
   }
   return null;
