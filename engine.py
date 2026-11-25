@@ -1171,6 +1171,25 @@ def length_note_for_reply(response_style: Optional[str],
             "End the reply when the scene beat is done; never end on a handover cue.]")
 
 
+def expand_name_aliases(names: list) -> list:
+    """A multi-word name also matches by its first and last token.
+
+    Field evidence: the card says "Lisa Surihani", the model writes
+    `Lisa:` — exact-match extraction missed the reply entirely. Models
+    write the natural short name; the protocol accepts both.
+    """
+    out = []
+    for n in names:
+        if not n:
+            continue
+        out.append(n)
+        # ALL tokens, not just first/last: a persona "M. Razif Hussin" is
+        # also written `Razif:` by hand — the middle token is the real name.
+        out.extend(str(n).split())
+    # longest first so the canonical form wins when both would match
+    return sorted(set(out), key=len, reverse=True)
+
+
 def texting_reminder_for_reply(llm_messages: list, response_style: Optional[str],
                                known_names: list) -> Optional[str]:
     """Per-reply answer-in-kind reminder (author's-note position).
@@ -1192,13 +1211,15 @@ def texting_reminder_for_reply(llm_messages: list, response_style: Optional[str]
     if not last_user:
         return None
     first = (last_user.get("content") or "").strip().split("\n", 1)[0].strip()
-    for n in sorted((x for x in known_names if x), key=len, reverse=True):
+    for n in expand_name_aliases(list(known_names)):
         if len(first) > len(n) + 1 and first[:len(n) + 1].lower() == (n + ":").lower():
             # a concrete example at the generation point: imitation beats
             # instruction, and NO escape hatch — the phone input asked for
             # a text, so the reply is a text (narration has the main box).
-            example_name = next((x for x in known_names
-                                 if x and x.lower() not in ("you", "user")), None) or "Name"
+            # The example uses the NATURAL short form — what models write.
+            canonical = next((x for x in known_names
+                              if x and x.lower() not in ("you", "user")), None)
+            example_name = (canonical.split()[0] if canonical else None) or "Name"
             return ("The user's last message was a text. Reply ONLY with text lines — "
                     f"your own `Name: message` lines (e.g. `{example_name}: on my way`), "
                     "no narration, no actions, no scene prose. A text gets a text back.")

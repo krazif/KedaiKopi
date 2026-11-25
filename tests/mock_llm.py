@@ -65,13 +65,17 @@ BURST_REPLY = (
 # rule (so this canned reply IS the proof it reached the wire) and the
 # scenario asks for texts with the TEXTS marker.
 def reply_with_texts(speaker):
-    """Narration + two `Speaker:` text lines — the phone-text protocol
-    format. Speaker is dynamic so extraction matches the real card name."""
+    """Narration + two text lines — the phone-text protocol format.
+
+    Uses the speaker's FIRST token, the natural short form: field
+    evidence shows the model writes `Lisa:` for the card "Lisa
+    Surihani", and the extraction accepts both."""
+    short = (speaker or "Name").split()[0]
     return (
         f"I don't look up from the pan, but I'm smiling.\n"
-        f"{speaker}: do you want the rest of the sambal or not\n"
+        f"{short}: do you want the rest of the sambal or not\n"
         f"I slide the plate across the counter without a word.\n"
-        f"{speaker}: answer me when your hands are free"
+        f"{short}: answer me when your hands are free"
     )
 WORDS_PER_FRAME = 2
 FRAME_DELAY = float(os.environ.get("MOCK_FRAME_DELAY", "0.04"))

@@ -91,6 +91,33 @@ class TextingReminderTests(unittest.TestCase):
         self.assertIsNotNone(note)
 
 
+class NameAliasTests(unittest.TestCase):
+    """Field evidence: the card says "Lisa Surihani", the model writes
+    `Lisa:` — exact-match extraction missed the reply entirely (it sat
+    in the chat as a plain row, absent from the phone)."""
+
+    def test_multi_word_names_expand_to_their_tokens(self):
+        aliases = engine.expand_name_aliases(["Lisa Surihani", "Farah"])
+        self.assertIn("Lisa", aliases)
+        self.assertIn("Surihani", aliases)
+        self.assertIn("Lisa Surihani", aliases)   # canonical kept
+        self.assertIn("Farah", aliases)           # single-word untouched
+
+    def test_reminder_matches_the_short_form(self):
+        # a user line written with a persona's first token still counts
+        note = engine.texting_reminder_for_reply(
+            [{"role": "user", "content": "Razif: on my way"}],
+            "moderate", ["M. Razif Hussin", "You", "User"])
+        self.assertIsNotNone(note)
+
+    def test_example_uses_the_natural_short_form(self):
+        # model the writing style models actually use
+        note = engine.texting_reminder_for_reply(
+            [{"role": "user", "content": "You: on my way"}],
+            "moderate", ["Lisa Surihani", "You", "User"])
+        self.assertIn("`Lisa: on my way`", note)
+
+
 class PerReplyNoteTests(unittest.TestCase):
     """Exactly ONE note rides the final user turn — the field regression
     appended the answer-in-kind reminder NEXT TO the length note, so the

@@ -373,9 +373,10 @@ async def scenario_h_text_lines(uri):
         frames = await collect_until(ws, lambda f: f.get("type") == "character_message"
                                      and not f.get("is_first_mes"))
         final = frames[-1][1]["content"]
-        text_lines = [ln for ln in final.splitlines() if ln.startswith(speaker + ":")]
+        short = speaker.split()[0]   # models write the natural short form
+        text_lines = [ln for ln in final.splitlines() if ln.startswith(short + ":")]
         check("phone-text rule reached the mock (canned text lines)", len(text_lines) >= 2,
-              f"text_lines={len(text_lines)} speaker={speaker!r}")
+              f"text_lines={len(text_lines)} short={short!r}")
         check("lines arrive as their own lines, not inline",
               all(ln == ln.strip() for ln in text_lines))
 
@@ -434,7 +435,8 @@ async def scenario_j_answer_in_kind(uri):
         final = frames[-1][1]["content"]
         check("no length note rode along with the reminder (one note only)",
               "NOTES_CONFLICT" not in final, f"content={final[:40]!r}")
-        lines = [ln for ln in final.splitlines() if ln.startswith(speaker + ":")]
+        short = speaker.split()[0]
+        lines = [ln for ln in final.splitlines() if ln.startswith(short + ":")]
         check("reminder reached the wire (text answered with text lines)", len(lines) >= 1,
               f"lines={len(lines)}")
 
@@ -445,7 +447,7 @@ async def scenario_j_answer_in_kind(uri):
                                      and not f.get("is_first_mes"))
         final2 = frames[-1][1]["content"]
         check("narration is answered with narration (no reminder fired)",
-              not any(ln.startswith(speaker + ":") for ln in final2.splitlines()),
+              not any(ln.startswith(short + ":") for ln in final2.splitlines()),
               f"content={final2[:50]!r}")
 
 

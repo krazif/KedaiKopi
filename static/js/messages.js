@@ -143,14 +143,21 @@ function buildRPActions(msg, index) {
 // told to write texts in exactly this format (engine: PHONE TEXTS).
 function knownTextSenders() {
   const out = [];
+  const expand = n => {
+    if (!n) return;
+    out.push(n);
+    // ALL tokens: the card says "Lisa Surihani", the model writes `Lisa:`
+    // (field evidence) — and a hand-typed `Razif:` must match "M. Razif Hussin".
+    String(n).split(/\s+/).forEach(t => { if (t) out.push(t); });
+  };
   if (typeof rpCharacters !== 'undefined') {
-    rpCharacters.forEach(c => { if (c && c.name) out.push(c.name); });
+    rpCharacters.forEach(c => { if (c && c.name) expand(c.name); });
   }
   if (typeof currentPersona !== 'undefined' && currentPersona && currentPersona.name) {
-    out.push(currentPersona.name);
+    expand(currentPersona.name);
   }
   out.push('You', 'User');   // no-persona fallbacks (prompt + label defaults)
-  // longest first so "Auntie Rose" matches before "Auntie"
+  // longest first so the canonical form wins when both would match
   return out.filter(Boolean).sort((a, b) => b.length - a.length);
 }
 
@@ -179,7 +186,7 @@ function extractTextLines(content) {
 function isUserSideTextName(name) {
   const persona = (typeof currentPersona !== 'undefined' && currentPersona && currentPersona.name) || null;
   const n = (name || '').toLowerCase();
-  if (persona && n === persona.toLowerCase()) return true;
+  if (persona && persona.toLowerCase().split(/\s+/).includes(n)) return true;  // full or token
   return n === 'you' || n === 'user';
 }
 
