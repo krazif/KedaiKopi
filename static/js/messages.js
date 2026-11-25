@@ -137,6 +137,106 @@ function buildRPActions(msg, index) {
   return actionsDiv;
 }
 
+// ─── Diegetic text lines: `Name: message` from a known speaker ───
+// One protocol, three surfaces: the prose pane renders them as text
+// blocks, the phone pane extracts them into bubbles, and the model is
+// told to write texts in exactly this format (engine: PHONE TEXTS).
+function knownTextSenders() {
+  const out = [];
+  if (typeof rpCharacters !== 'undefined') {
+    rpCharacters.forEach(c => { if (c && c.name) out.push(c.name); });
+  }
+  if (typeof currentPersona !== 'undefined' && currentPersona && currentPersona.name) {
+    out.push(currentPersona.name);
+  }
+  out.push('You', 'User');   // no-persona fallbacks (prompt + label defaults)
+  // longest first so "Auntie Rose" matches before "Auntie"
+  return out.filter(Boolean).sort((a, b) => b.length - a.length);
+}
+
+function matchTextLine(line, names) {
+  const t = line.trim();
+  for (const n of names) {
+    if (t.length > n.length + 1 &&
+        t.slice(0, n.length + 1).toLowerCase() === (n + ':').toLowerCase()) {
+      const text = t.slice(n.length + 1).trim();
+      if (text) return { name: n, text };
+    }
+  }
+  return null;
+}
+
+function extractTextLines(content) {
+  const names = knownTextSenders();
+  const out = [];
+  (content || '').split('\n').forEach(line => {
+    const hit = matchTextLine(line, names);
+    if (hit) out.push(hit);
+  });
+  return out;
+}
+
+function isUserSideTextName(name) {
+  const persona = (typeof currentPersona !== 'undefined' && currentPersona && currentPersona.name) || null;
+  const n = (name || '').toLowerCase();
+  if (persona && n === persona.toLowerCase()) return true;
+  return n === 'you' || n === 'user';
+}
+
+// Texting style: drop a leading own-sender `Name:` echo before bubbling
+// (the bubble's side + header already say who sent it).
+function stripOwnSenderPrefix(content, msg) {
+  const sender = msg.role === 'user'
+    ? ((typeof currentPersona !== 'undefined' && currentPersona && currentPersona.name) || 'You')
+    : (msg.speaker || null);
+  if (!sender) return content;
+  const nl = content.indexOf('\n');
+  const first = nl === -1 ? content : content.slice(0, nl);
+  const rest = nl === -1 ? '' : content.slice(nl);
+  const f = first.trim();
+  if (f.length > sender.length + 1 &&
+      f.slice(0, sender.length + 1).toLowerCase() === (sender + ':').toLowerCase()) {
+    return f.slice(sender.length + 1).trim() + rest;
+  }
+  return content;
+}
+
+// Prose pane: known `Name:` lines become text blocks, everything else
+// stays prose (consecutive prose lines share one formatMessage pass).
+function renderProseContent(content) {
+  const frag = document.createDocumentFragment();
+  const names = knownTextSenders();
+  let proseRun = [];
+  const flushProse = () => {
+    if (!proseRun.length) return;
+    const div = document.createElement('div');
+    div.className = 'rp-prose-run';
+    div.innerHTML = formatMessage(proseRun.join('\n'));
+    frag.appendChild(div);
+    proseRun = [];
+  };
+  (content || '').split('\n').forEach(line => {
+    const hit = matchTextLine(line, names);
+    if (hit) {
+      flushProse();
+      const div = document.createElement('div');
+      div.className = 'rp-text-line';
+      const sender = document.createElement('span');
+      sender.className = 'rp-text-sender';
+      sender.textContent = hit.name + ':';
+      div.appendChild(sender);
+      const body = document.createElement('span');
+      body.innerHTML = formatMessage(hit.text);
+      div.appendChild(body);
+      frag.appendChild(div);
+    } else {
+      proseRun.push(line);
+    }
+  });
+  flushProse();
+  return frag;
+}
+
 function buildRPMessageDOM(msg, index) {
   const frag = document.createDocumentFragment();
   // Image-only message: just a middle balloon, no chat bubble
@@ -165,10 +265,10 @@ function buildRPMessageDOM(msg, index) {
     label.textContent = msg.speaker || 'Character';
   }
   div.appendChild(label);
-  // Content
+  // Content — text lines get the text-block treatment, rest stays prose
   const contentDiv = document.createElement('div');
   contentDiv.className = 'rp-msg-content';
-  contentDiv.innerHTML = formatMessage(msg.content);
+  contentDiv.appendChild(renderProseContent(msg.content));
   div.appendChild(contentDiv);
   const actionsDiv = buildRPActions(msg, index);
   if (actionsDiv) div.appendChild(actionsDiv);
@@ -204,54 +304,100 @@ function splitBursts(content) {
 
 function buildTextMessageDOM(msg, index) {
   const frag = document.createDocumentFragment();
+  const textingStyle = (typeof rpResponseStyle !== 'undefined' && rpResponseStyle === 'texting');
+
+  // Scene images belong to texting-style threads; in RP they're stage art,
+  // not the messaging layer.
   if (msg.imagePath && (!msg.content || !msg.content.trim())) {
-    frag.appendChild(buildImageBalloon(msg.imagePath, '/api/rp/images/', index, deleteRPMessage, msg.imagePrompt, msg.seed));
+    if (textingStyle) {
+      frag.appendChild(buildImageBalloon(msg.imagePath, '/api/rp/images/', index, deleteRPMessage, msg.imagePrompt, msg.seed));
+    }
     return frag;
   }
-  const role = msg.role === 'user' ? 'user' : (msg.role === 'system' ? 'system' : 'character');
-  const div = document.createElement('div');
-  div.className = 'tx-msg ' + role;
-  div.dataset.messageId = msg.messageId || '';
-  div.dataset.clientId = msg.clientId || '';
 
-  // Animate only if this message hasn't been built before (live arrival)
   const key = msg.clientId || msg.messageId || '';
   const isNew = !!key && !txSeen.has(key);
   if (key) txSeen.add(key);
-  if (isNew) div.classList.add('tx-new');
 
-  // Name shown only when the sender changes (SMS convention)
-  const nameOf = m => !m ? null
-    : m.role === 'user' ? (m.personaName || 'You')
-    : m.role === 'system' ? null
-    : (m.speaker || 'Character');
-  const name = nameOf(msg);
+  const nameOf = mm => !mm ? null
+    : mm.role === 'user' ? (mm.personaName || 'You')
+    : mm.role === 'system' ? null
+    : (mm.speaker || 'Character');
+
+  if (textingStyle) {
+    // The whole message is the text: one container, ··· bursts, and any
+    // leading own-sender `Name:` echo stripped (side + header carry it).
+    const role = msg.role === 'user' ? 'user' : (msg.role === 'system' ? 'system' : 'character');
+    const div = document.createElement('div');
+    div.className = 'tx-msg ' + role;
+    div.dataset.messageId = msg.messageId || '';
+    div.dataset.clientId = msg.clientId || '';
+    if (isNew) div.classList.add('tx-new');
+
+    const name = nameOf(msg);
+    const prev = index > 0 ? rpMessages[index - 1] : null;
+    const prevName = nameOf(prev);
+    if (name && (!prev || name !== prevName || prev.role !== msg.role)) {
+      const n = document.createElement('div');
+      n.className = 'tx-name';
+      n.textContent = name;
+      div.appendChild(n);
+    }
+
+    const content = stripOwnSenderPrefix((msg.content || '').trim(), msg);
+    if (content) {
+      splitBursts(content).forEach((text, i) => {
+        const bub = document.createElement('div');
+        bub.className = 'tx-bubble';
+        bub.style.setProperty('--i', String(i));
+        bub.innerHTML = formatMessage(text);
+        div.appendChild(bub);
+      });
+    }
+    const actionsDiv = buildRPActions(msg, index);
+    if (actionsDiv) div.appendChild(actionsDiv);
+    frag.appendChild(div);
+    if (msg.imagePath) {
+      frag.appendChild(buildImageBalloon(msg.imagePath, '/api/rp/images/', index, deleteRPMessage, msg.imagePrompt, msg.seed));
+    }
+    return frag;
+  }
+
+  // RP session: the phone is the messaging layer — only extracted
+  // `Name:` lines reach it; prose-only messages contribute nothing.
+  const texts = extractTextLines(msg.content);
+  if (!texts.length) return frag;
   const prev = index > 0 ? rpMessages[index - 1] : null;
   const prevName = nameOf(prev);
-  if (name && (!prev || name !== prevName || prev.role !== msg.role)) {
-    const n = document.createElement('div');
-    n.className = 'tx-name';
-    n.textContent = name;
-    div.appendChild(n);
-  }
+  let lastDiv = null;
+  texts.forEach((t, i) => {
+    const side = isUserSideTextName(t.name) ? 'user' : 'character';
+    const div = document.createElement('div');
+    div.className = 'tx-msg ' + side;
+    div.dataset.messageId = msg.messageId || '';
+    div.dataset.clientId = msg.clientId || '';
+    if (isNew) div.classList.add('tx-new');
 
-  const content = (msg.content || '').trim();
-  if (content) {
-    splitBursts(content).forEach((text, i) => {
-      const bub = document.createElement('div');
-      bub.className = 'tx-bubble';
-      bub.style.setProperty('--i', String(i));
-      bub.innerHTML = formatMessage(text);
-      div.appendChild(bub);
-    });
-  }
+    // header: within the group, and vs the previous message's sender
+    const headerAgainst = i > 0 ? texts[i - 1].name : prevName;
+    if (t.name !== headerAgainst) {
+      const n = document.createElement('div');
+      n.className = 'tx-name';
+      n.textContent = t.name;
+      div.appendChild(n);
+    }
 
+    const bub = document.createElement('div');
+    bub.className = 'tx-bubble';
+    bub.style.setProperty('--i', String(i));
+    bub.innerHTML = formatMessage(t.text);
+    div.appendChild(bub);
+    frag.appendChild(div);
+    lastDiv = div;
+  });
+  // actions once per message, on its last bubble
   const actionsDiv = buildRPActions(msg, index);
-  if (actionsDiv) div.appendChild(actionsDiv);
-  frag.appendChild(div);
-  if (msg.imagePath) {
-    frag.appendChild(buildImageBalloon(msg.imagePath, '/api/rp/images/', index, deleteRPMessage, msg.imagePrompt, msg.seed));
-  }
+  if (actionsDiv && lastDiv) lastDiv.appendChild(actionsDiv);
   return frag;
 }
 

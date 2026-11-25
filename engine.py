@@ -515,6 +515,17 @@ def build_rp_system_prompt(cards: list[dict], persona: dict = None,
         parts.append("- Example: [Lisa]: *looks up from her book* What did you say?")
         parts.append("- You choose which single character responds. Respond as the one most appropriate for this moment.")
         parts.append("- Do not write dialogue for other characters — only the one you choose.")
+
+    # Diegetic phone texts: a recognized line format so the prose pane can
+    # render them as text blocks and the phone pane can extract them into
+    # bubbles. Skipped in texting mode — there the style directive owns the
+    # format and this would contradict "no speaker tags".
+    if response_style != "texting":
+        parts.append("PHONE TEXTS: when a character sends a text message, write it on its own line")
+        parts.append("as `Name: message` — the sender's name, a colon, then the text only (example:")
+        parts.append("`Lisa: leaving in twenty minutes`). No italics, quotes or action framing around")
+        parts.append("that line; everything around it stays prose.")
+        parts.append("")
     parts.append("")
 
     # Response style (caps + the per-reply note handle enforcement)

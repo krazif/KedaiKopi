@@ -660,7 +660,13 @@ function updateRPInputState() {
   document.getElementById('rpAttachBtn').disabled = rpIsWaiting || !rpActiveSessionId;
   const noteEl = document.getElementById('rpAuthorNoteInput');
   if (noteEl) noteEl.disabled = rpIsWaiting;
-  if (!rpIsWaiting) document.getElementById('rpMsgInput').focus();
+  const phInput = document.getElementById('rpPhoneInput');
+  if (phInput) phInput.disabled = rpIsWaiting;
+  if (!rpIsWaiting) {
+    // with the phone dock open he's texting there — don't yank focus to the main box
+    const dockOpen = phInput && phInput.offsetParent !== null;
+    if (!dockOpen) document.getElementById('rpMsgInput').focus();
+  }
 }
 
 // ── Author's Note toggle + key handlers ──
@@ -783,6 +789,25 @@ function applyRPPhoneDock() {
   }
 }
 
+// The phone's own input: sends a TEXT — stored as `Name: message` so the
+// whole protocol (prose treatment, extraction, the model's history) reads
+// it as one. No author's note, no image: those are RP tools.
+function sendRPPhoneText() {
+  const input = document.getElementById('rpPhoneInput');
+  const text = input ? input.value.trim() : '';
+  if (!text || !rpActiveSessionId || !rpWS || rpWS.readyState !== WebSocket.OPEN || rpIsWaiting) return;
+  const name = (currentPersona && currentPersona.name) || 'You';
+  const content = name + ': ' + text;
+  const clientId = 'rp_' + (++_clientMsgCounter) + '_' + Date.now();
+  addRPMessage('user', content, null, null, clientId, null);
+  const directedTo = document.getElementById('rpDirectSelect')?.value || null;
+  rpWS.send(JSON.stringify({type: 'user_message', content, directed_to: directedTo || null,
+                            client_msg_id: clientId, image_path: null}));
+  input.value = '';
+  rpIsWaiting = true;
+  updateRPInputState();
+}
+
 function rpUpdateSetting(key, value) {
   // update local state immediately for responsive UI
   if (key === 'pov') rpPov = value || null;
@@ -792,6 +817,8 @@ function rpUpdateSetting(key, value) {
     rpResponseStyle = value;
     // Picking Texting turns on the bubble view too — the two belong together
     if (value === 'texting' && !rpTextView) toggleRPTextView(true);
+    // The phone's interpretation of stored messages changes with the style
+    if (isRPPhoneDockOpen()) renderVirtualMessages('rpPhoneMessages', rpMessages, rpPhoneVisible.value);
   }
   renderRPSceneBar();
   if (rpWS && rpWS.readyState === WebSocket.OPEN) {

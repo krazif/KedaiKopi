@@ -356,6 +356,30 @@ async def scenario_g_texting(uri):
               f"words={len(final.split())}")
 
 
+async def scenario_h_text_lines(uri):
+    """The phone-text protocol: the model is told texts are their own
+    `Name:` lines. The mock only answers with text lines when the rule
+    reached its system prompt, and the lines must survive streaming."""
+    print("H. Phone-text protocol — rule reached the LLM, `Name:` lines survive")
+    import websockets
+
+    async with websockets.connect(uri, max_size=16 * 1024 * 1024) as ws:
+        await ws.send(json.dumps({"type": "start", "characters": ["p_ramlee.json"]}))
+        started = await collect_until(ws, lambda f: f.get("type") == "session_started")
+        speaker = started[-1][1]["characters"][0]["name"]
+        await collect_until(ws, lambda f: f.get("type") == "character_message"
+                            and f.get("is_first_mes"))
+        await ws.send(json.dumps({"type": "user_message", "content": "TEXTS"}))
+        frames = await collect_until(ws, lambda f: f.get("type") == "character_message"
+                                     and not f.get("is_first_mes"))
+        final = frames[-1][1]["content"]
+        text_lines = [ln for ln in final.splitlines() if ln.startswith(speaker + ":")]
+        check("phone-text rule reached the mock (canned text lines)", len(text_lines) >= 2,
+              f"text_lines={len(text_lines)} speaker={speaker!r}")
+        check("lines arrive as their own lines, not inline",
+              all(ln == ln.strip() for ln in text_lines))
+
+
 def start_app(workdir, env_overrides, log_path):
     env = dict(os.environ)
     env.update(env_overrides)
@@ -415,6 +439,7 @@ async def main():
         await scenario_e_style_cap(ws_uri)
         await scenario_f_lorebook(APP_PORT)
         await scenario_g_texting(ws_uri)
+        await scenario_h_text_lines(ws_uri)
 
         # Swap the mock for one that refuses streaming, then re-run D
         mock.terminate()

@@ -61,6 +61,18 @@ BURST_REPLY = (
     "···\n"
     "the blue drawer again??"
 )
+# Phone-text protocol: returned only when the system prompt carries the
+# rule (so this canned reply IS the proof it reached the wire) and the
+# scenario asks for texts with the TEXTS marker.
+def reply_with_texts(speaker):
+    """Narration + two `Speaker:` text lines — the phone-text protocol
+    format. Speaker is dynamic so extraction matches the real card name."""
+    return (
+        f"I don't look up from the pan, but I'm smiling.\n"
+        f"{speaker}: do you want the rest of the sambal or not\n"
+        f"I slide the plate across the counter without a word.\n"
+        f"{speaker}: answer me when your hands are free"
+    )
 WORDS_PER_FRAME = 2
 FRAME_DELAY = float(os.environ.get("MOCK_FRAME_DELAY", "0.04"))
 REJECT_STREAM = False
@@ -114,6 +126,7 @@ async def chat_completions(request: Request):
     elif "Texting mode" in system_text:
         reply, finish, plain = BURST_REPLY, "stop", True
 
+
     user_text = last_user_text(messages)
     last = messages[-1] if messages else {}
     # Continuation = auto-continue (partial reply re-appended as assistant)
@@ -131,6 +144,8 @@ async def chat_completions(request: Request):
         reply, finish = HUGE_REPLY, "stop"
     elif "LONGREPLY" in user_text:
         reply, finish = LONG_REPLY, "stop"
+    elif "PHONE TEXTS" in system_text and "TEXTS" in user_text:
+        reply, finish, plain = reply_with_texts(speaker_from(messages)), "stop", True
     else:
         reply, finish = REPLY, "stop"
 
