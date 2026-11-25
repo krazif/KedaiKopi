@@ -316,9 +316,30 @@ header .status.connected { color:var(--green); }
 .rp-msg .rp-speaker { font-size:12px; font-weight:700; margin-bottom:6px; letter-spacing:0.3px; }
 .rp-msg.user .rp-speaker { color:var(--user-bubble-text); opacity:0.7; }
 .rp-msg.character .rp-speaker { color:var(--accent); }
-.rp-msg .rp-msg-actions { display:flex; gap:10px; justify-content:flex-end; margin-top:8px; font-size:11px; }
-.rp-msg .rp-msg-actions a { color:var(--text-dim); text-decoration:none; cursor:pointer; opacity:0; transition:opacity 0.2s; }
-.rp-msg:hover .rp-msg-actions a { opacity:0.6; }
+.rp-msg .rp-msg-actions, .tx-msg .rp-msg-actions { display:flex; gap:10px; justify-content:flex-end; margin-top:8px; font-size:11px; }
+.rp-msg .rp-msg-actions a, .tx-msg .rp-msg-actions a { color:var(--text-dim); text-decoration:none; cursor:pointer; opacity:0; transition:opacity 0.2s; }
+.rp-msg:hover .rp-msg-actions a, .tx-msg:hover .rp-msg-actions a { opacity:0.6; }
+
+/* Texting (SMS) view — same messages, messenger bursts */
+.tx-msg { max-width:74%; display:flex; flex-direction:column; gap:4px; position:relative; }
+.tx-msg.user { align-self:flex-end; align-items:flex-end; }
+.tx-msg.character { align-self:flex-start; align-items:flex-start; }
+.tx-msg.system { align-self:center; max-width:90%; align-items:center; }
+.tx-name { display:block; font-size:11px; color:var(--text-dim); margin:6px 0 1px 8px; letter-spacing:0.2px; }
+.tx-msg.user .tx-name { margin:6px 8px 1px 0; }
+.tx-bubble { max-width:100%; padding:7px 13px; border-radius:16px; font-size:14.5px; line-height:1.5; white-space:pre-wrap; word-wrap:break-word; border:1px solid var(--char-bubble-border); background:color-mix(in srgb, var(--char-bubble) calc(var(--bubble-opacity) * 100%), transparent); box-shadow:0 1px 3px rgba(0,0,0,0.25); }
+.tx-msg.user .tx-bubble { background:linear-gradient(135deg, color-mix(in srgb, var(--user-bubble) calc(var(--bubble-opacity) * 100%), transparent), color-mix(in srgb, var(--user-bubble-border) calc(var(--bubble-opacity) * 100%), transparent)); color:var(--user-bubble-text); border-color:var(--user-bubble-border); }
+.tx-msg.user .tx-bubble:last-of-type { border-bottom-right-radius:6px; }
+.tx-msg.character .tx-bubble:last-of-type { border-bottom-left-radius:6px; }
+.tx-msg.system .tx-bubble { background:transparent; border:none; box-shadow:none; color:var(--text-dim); font-size:12.5px; font-style:italic; }
+.tx-msg .rp-msg-actions { margin-top:1px; }
+/* consecutive messages from the same sender cluster like a real thread */
+.tx-msg.user:has(+ .tx-msg.user), .tx-msg.character:has(+ .tx-msg.character) { margin-bottom:-8px; }
+/* first build of a live message: bubbles pop in one after another */
+@keyframes txPop { from { opacity:0; transform:translateY(6px) scale(.97); } to { opacity:1; transform:none; } }
+.tx-new .tx-bubble { animation:txPop .26s ease both; animation-delay:calc(var(--i, 0) * .38s); }
+.tx-new .tx-name { animation:txPop .26s ease both; }
+.tx-msg.streaming .tx-bubble { opacity:.85; }
 .rp-msg .rp-msg-actions a:hover { color:var(--red); opacity:1; }
 .rp-msg .rp-msg-actions .msg-word-count { color:var(--text-dim); opacity:0.5; font-size:11px; }
 .rp-msg .rp-msg-actions a.rp-regenerate-link:hover { color:var(--accent); opacity:1; }
@@ -1048,6 +1069,7 @@ header .status.connected { color:var(--green); }
             <div class="rp-toggle-btn" id="rpToggleLong" onclick="rpToggleSetting('style','long')">Long (300+ words)</div>
             <div class="rp-toggle-btn" id="rpToggleShort" onclick="rpToggleSetting('style','short')">Short (~150 words)</div>
             <div class="rp-toggle-btn" id="rpToggleFlexible" onclick="rpToggleSetting('style','flexible')">Flexible (dynamic)</div>
+            <div class="rp-toggle-btn" id="rpToggleTexting" onclick="rpToggleSetting('style','texting')">Texting (SMS)</div>
           </div>
         </div>
       </div>

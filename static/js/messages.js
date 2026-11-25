@@ -67,42 +67,9 @@ function renderVirtualMessages(containerId, messagesArr, visibleCount) {
   }
 }
 
-function buildRPMessageDOM(msg, index) {
-  const frag = document.createDocumentFragment();
-  // Image-only message: just a middle balloon, no chat bubble
-  if (msg.imagePath && (!msg.content || !msg.content.trim())) {
-    frag.appendChild(buildImageBalloon(msg.imagePath, '/api/rp/images/', index, deleteRPMessage, msg.imagePrompt, msg.seed));
-    return frag;
-  }
-  const div = document.createElement('div');
-  div.className = 'rp-msg ' + msg.role;
-  div.dataset.messageId = msg.messageId || '';
-  div.dataset.clientId = msg.clientId || '';
-  // Badge
-  const badge = document.createElement('span');
-  badge.className = 'rp-msg-badge';
-  badge.textContent = index;
-  div.appendChild(badge);
-  // Label
-  const label = document.createElement('span');
-  label.className = 'rp-msg-label';
-  div.appendChild(document.createTextNode(' '));
-  if (msg.role === 'user') {
-    label.textContent = msg.personaName || 'You';
-  } else if (msg.role === 'system') {
-    label.textContent = 'System';
-  } else {
-    label.textContent = msg.speaker || 'Character';
-  }
-  div.appendChild(label);
-  // Content
-  const contentDiv = document.createElement('div');
-  contentDiv.className = 'rp-msg-content';
-  contentDiv.innerHTML = formatMessage(msg.content);
-  div.appendChild(contentDiv);
-  // Actions (delete + regenerate for character)
-  if (msg.role !== 'system') {
-    const actionsDiv = document.createElement('div');
+function buildRPActions(msg, index) {
+  if (msg.role === 'system') return null;
+  const actionsDiv = document.createElement('div');
     actionsDiv.className = 'rp-msg-actions';
     if (msg.role === 'character') {
       const wordCount = (msg.content || '').trim().split(/\s+/).filter(w => w.length > 0).length;
@@ -157,11 +124,123 @@ function buildRPMessageDOM(msg, index) {
     delFromHere.className = 'rp-delete-link';
     delFromHere.textContent = 'delete from here';
     delFromHere.onclick = () => deleteRPMessageFromHere(index);
-    actionsDiv.appendChild(delFromHere);
-    div.appendChild(actionsDiv);
+  actionsDiv.appendChild(delFromHere);
+  return actionsDiv;
+}
+
+function buildRPMessageDOM(msg, index) {
+  if (typeof isRPTextView === 'function' && isRPTextView()) return buildTextMessageDOM(msg, index);
+  const frag = document.createDocumentFragment();
+  // Image-only message: just a middle balloon, no chat bubble
+  if (msg.imagePath && (!msg.content || !msg.content.trim())) {
+    frag.appendChild(buildImageBalloon(msg.imagePath, '/api/rp/images/', index, deleteRPMessage, msg.imagePrompt, msg.seed));
+    return frag;
   }
+  const div = document.createElement('div');
+  div.className = 'rp-msg ' + msg.role;
+  div.dataset.messageId = msg.messageId || '';
+  div.dataset.clientId = msg.clientId || '';
+  // Badge
+  const badge = document.createElement('span');
+  badge.className = 'rp-msg-badge';
+  badge.textContent = index;
+  div.appendChild(badge);
+  // Label
+  const label = document.createElement('span');
+  label.className = 'rp-msg-label';
+  div.appendChild(document.createTextNode(' '));
+  if (msg.role === 'user') {
+    label.textContent = msg.personaName || 'You';
+  } else if (msg.role === 'system') {
+    label.textContent = 'System';
+  } else {
+    label.textContent = msg.speaker || 'Character';
+  }
+  div.appendChild(label);
+  // Content
+  const contentDiv = document.createElement('div');
+  contentDiv.className = 'rp-msg-content';
+  contentDiv.innerHTML = formatMessage(msg.content);
+  div.appendChild(contentDiv);
+  const actionsDiv = buildRPActions(msg, index);
+  if (actionsDiv) div.appendChild(actionsDiv);
   frag.appendChild(div);
   // If message also has an image, split it into a separate middle balloon below
+  if (msg.imagePath) {
+    frag.appendChild(buildImageBalloon(msg.imagePath, '/api/rp/images/', index, deleteRPMessage, msg.imagePrompt, msg.seed));
+  }
+  return frag;
+}
+
+// ─── Texting (SMS) view ──────────────────────────────────────
+// Animate only the first build of a message: seeded history is registered
+// here up front, so only messages that arrive live pop in.
+const txSeen = new Set();
+
+function txSeedSeen() {
+  rpMessages.forEach(m => {
+    const k = m.clientId || m.messageId;
+    if (k) txSeen.add(k);
+  });
+}
+
+// One bubble per burst: a line containing only ··· (or ... / …) splits the
+// message the way a texter would have sent it.
+function splitBursts(content) {
+  const text = (content || '').trim();
+  if (!text) return [];
+  const parts = text.split(/^[ \t]*(?:···|\.\.\.|…)[ \t]*$/m)
+                   .map(s => s.trim()).filter(Boolean);
+  return parts.length ? parts : [text];
+}
+
+function buildTextMessageDOM(msg, index) {
+  const frag = document.createDocumentFragment();
+  if (msg.imagePath && (!msg.content || !msg.content.trim())) {
+    frag.appendChild(buildImageBalloon(msg.imagePath, '/api/rp/images/', index, deleteRPMessage, msg.imagePrompt, msg.seed));
+    return frag;
+  }
+  const role = msg.role === 'user' ? 'user' : (msg.role === 'system' ? 'system' : 'character');
+  const div = document.createElement('div');
+  div.className = 'tx-msg ' + role;
+  div.dataset.messageId = msg.messageId || '';
+  div.dataset.clientId = msg.clientId || '';
+
+  // Animate only if this message hasn't been built before (live arrival)
+  const key = msg.clientId || msg.messageId || '';
+  const isNew = !!key && !txSeen.has(key);
+  if (key) txSeen.add(key);
+  if (isNew) div.classList.add('tx-new');
+
+  // Name shown only when the sender changes (SMS convention)
+  const nameOf = m => !m ? null
+    : m.role === 'user' ? (m.personaName || 'You')
+    : m.role === 'system' ? null
+    : (m.speaker || 'Character');
+  const name = nameOf(msg);
+  const prev = index > 0 ? rpMessages[index - 1] : null;
+  const prevName = nameOf(prev);
+  if (name && (!prev || name !== prevName || prev.role !== msg.role)) {
+    const n = document.createElement('div');
+    n.className = 'tx-name';
+    n.textContent = name;
+    div.appendChild(n);
+  }
+
+  const content = (msg.content || '').trim();
+  if (content) {
+    splitBursts(content).forEach((text, i) => {
+      const bub = document.createElement('div');
+      bub.className = 'tx-bubble';
+      bub.style.setProperty('--i', String(i));
+      bub.innerHTML = formatMessage(text);
+      div.appendChild(bub);
+    });
+  }
+
+  const actionsDiv = buildRPActions(msg, index);
+  if (actionsDiv) div.appendChild(actionsDiv);
+  frag.appendChild(div);
   if (msg.imagePath) {
     frag.appendChild(buildImageBalloon(msg.imagePath, '/api/rp/images/', index, deleteRPMessage, msg.imagePrompt, msg.seed));
   }
@@ -274,6 +353,7 @@ function openImageLightbox(src, promptText, seed) {
 function clearRPChat() {
   clearStreamBubble();
   rpMessages = [];
+  txSeen.clear();
   rpVisibleCount.value = VIRTUAL_SCROLL_BATCH;
   const container = document.getElementById('rpChatMessages');
   if (container) container.innerHTML = '';
@@ -295,14 +375,15 @@ function startStreamBubble(label) {
   const container = document.getElementById('rpChatMessages');
   if (!container) return;
   const div = document.createElement('div');
+  const tv = typeof isRPTextView === 'function' && isRPTextView();
   div.id = 'streamBubble';
-  div.className = 'rp-msg character streaming';
+  div.className = tv ? 'tx-msg character streaming' : 'rp-msg character streaming';
   const labelEl = document.createElement('span');
-  labelEl.className = 'rp-msg-label';
+  labelEl.className = tv ? 'tx-name' : 'rp-msg-label';
   labelEl.textContent = label || '';
   div.appendChild(labelEl);
   const contentEl = document.createElement('div');
-  contentEl.className = 'rp-msg-content';
+  contentEl.className = tv ? 'tx-bubble tx-streaming' : 'rp-msg-content';
   div.appendChild(contentEl);
   container.appendChild(div);
   _streamBubble = { containerId: 'rpChatMessages', el: div, contentEl, text: '' };
@@ -317,7 +398,11 @@ function appendStreamText(text) {
   // The virtual scroller rebuilds the container — re-attach if it dropped us
   if (!b.el.isConnected) container.appendChild(b.el);
   b.text += text;
-  b.contentEl.innerHTML = formatMessage(b.text);
+  let shown = b.text;
+  if (typeof isRPTextView === 'function' && isRPTextView()) {
+    shown = shown.replace(/^[ \t]*(?:···|\.\.\.|…)[ \t]*$/gm, '');  // no separator flash mid-stream
+  }
+  b.contentEl.innerHTML = formatMessage(shown);
   if (wasNearBottom) container.scrollTop = container.scrollHeight;
 }
 

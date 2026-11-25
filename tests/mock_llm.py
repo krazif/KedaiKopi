@@ -52,6 +52,15 @@ LOREBOOK_GEN_JSON = (
     'her since the fire. It opens the blue drawer upstairs, which she never '
     'locks but never opens either."}]}'
 )
+# Texting style: only returned when the system prompt carries the texting
+# directive (so this canned reply IS the proof the prompt reached us).
+BURST_REPLY = (
+    "omw just left the office\n"
+    "···\n"
+    "got ur message\n"
+    "···\n"
+    "the blue drawer again??"
+)
 WORDS_PER_FRAME = 2
 FRAME_DELAY = float(os.environ.get("MOCK_FRAME_DELAY", "0.04"))
 REJECT_STREAM = False
@@ -102,6 +111,8 @@ async def chat_completions(request: Request):
         reply, finish, plain = LOREBOOK_GEN_JSON, "stop", True
     elif "distill story facts" in system_text:
         reply, finish, plain = DISTILL_FACTS, "stop", True
+    elif "Texting mode" in system_text:
+        reply, finish, plain = BURST_REPLY, "stop", True
 
     user_text = last_user_text(messages)
     last = messages[-1] if messages else {}

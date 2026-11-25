@@ -332,6 +332,30 @@ async def scenario_f_lorebook(app_port):
         pass
 
 
+async def scenario_g_texting(uri):
+    """Texting style: the directive must reach the LLM (the mock only
+    answers with bursts when it sees it) and the ··· separators must
+    survive streaming + storage — the client splits them into bubbles."""
+    print("G. Texting style — directive reached the LLM, ··· survives the round trip")
+    import websockets
+
+    async with websockets.connect(uri, max_size=16 * 1024 * 1024) as ws:
+        await ws.send(json.dumps({"type": "start", "characters": ["p_ramlee.json"],
+                                  "response_style": "texting"}))
+        await collect_until(ws, lambda f: f.get("type") == "session_started")
+        await collect_until(ws, lambda f: f.get("type") == "character_message"
+                            and f.get("is_first_mes"))
+        await ws.send(json.dumps({"type": "user_message", "content": "heading home now"}))
+        frames = await collect_until(ws, lambda f: f.get("type") == "character_message"
+                                     and not f.get("is_first_mes"))
+        final = frames[-1][1]["content"]
+        seps = final.count("···")
+        check("directive reached the mock (burst canned reply)", seps >= 2,
+              f"separators={seps}")
+        check("reply stays thumb-sized", len(final.split()) < 60,
+              f"words={len(final.split())}")
+
+
 def start_app(workdir, env_overrides, log_path):
     env = dict(os.environ)
     env.update(env_overrides)
@@ -390,6 +414,7 @@ async def main():
         await scenario_c_auto_continue(ws_uri)
         await scenario_e_style_cap(ws_uri)
         await scenario_f_lorebook(APP_PORT)
+        await scenario_g_texting(ws_uri)
 
         # Swap the mock for one that refuses streaming, then re-run D
         mock.terminate()

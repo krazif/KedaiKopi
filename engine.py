@@ -1092,7 +1092,7 @@ Return ONLY the JSON object."""},
 # visible damage, an occasionally over-long one is not). 150 words ≈ 230 tokens
 # at the measured 1.44-1.59 tok/word; 800/1100 let a natural reply finish on
 # its own while still catching a runaway.
-_STYLE_TOKEN_BUDGETS = {"short": 800, "moderate": 1100}
+_STYLE_TOKEN_BUDGETS = {"short": 800, "moderate": 1100, "texting": 800}
 
 
 def response_style_max_tokens(response_style: Optional[str], default: int = 2000) -> int:
@@ -1115,6 +1115,7 @@ _STYLE_LENGTH_NOTES = {
     "moderate": "[IMPORTANT — Keep your response length between 150–300 words. Never end on handover cues; finish naturally.]",
     "long": "[IMPORTANT — Keep your response length above 300 words. Include dialogue, actions, internal thoughts, body language, and emotional detail. Never end on handover cues; finish naturally.]",
     "flexible": "[IMPORTANT — Choose your response length naturally based on the scene. Keep it concise (up to 150 words) for dialogue and action; write longer (above 150 words) for scene transitions, establishing shots, and plot developments. Never end on handover cues; finish naturally.]",
+    "texting": "[IMPORTANT — Texting mode: you are sending text messages, not writing prose. Reply ONLY with the text inside the bubbles — no narration, no action asterisks, no scene description, no speaker tags. Write like a real texter: lowercase, informal, fragments, abbreviations, ellipses, emoji. Keep every bubble to 1-3 short lines; split a thought across bubbles by putting a line containing only ··· between them. Total under 150 words. Even if earlier messages read as prose, keep texting. Never end on handover cues; finish naturally.]",
 }
 
 

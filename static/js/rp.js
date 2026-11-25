@@ -11,9 +11,9 @@ let rpPov = null;
 let rpInnerMonologue = false;
 let rpAutoContinue = true;  // auto-continue truncated responses
 let rpLorebooks = []; // active lorebook filenames for RP session
-const rpStyleLabels = {short:'Short', moderate:'Moderate', long:'Long', flexible:'Flexible'};
-const rpStyleOrder = ['short','moderate','long','flexible'];
-const rpStyleTokens = {short:'~150 words', moderate:'~150-300 words', long:'300+ words', flexible:'dynamic'};
+const rpStyleLabels = {short:'Short', moderate:'Moderate', long:'Long', flexible:'Flexible', texting:'Texting'};
+const rpStyleOrder = ['short','moderate','long','flexible','texting'];
+const rpStyleTokens = {short:'~150 words', moderate:'~150-300 words', long:'300+ words', flexible:'dynamic', texting:'SMS bursts'};
 const povLabels = {null:'Auto', 'first':'1st', 'second':'2nd', 'third':'3rd'};
 const povOrder = ['first','second','third'];
 const povTitles = {null:'Default (inherit from card)', 'first':'First person (I/me)', 'second':'Second person (you)', 'third':'Third person (she/he/they)'};
@@ -95,6 +95,7 @@ function rpToggleSetting(group, value) {
     document.getElementById('rpToggleLong').classList.toggle('active', value === 'long');
     document.getElementById('rpToggleShort').classList.toggle('active', value === 'short');
     document.getElementById('rpToggleFlexible').classList.toggle('active', value === 'flexible');
+    document.getElementById('rpToggleTexting').classList.toggle('active', value === 'texting');
   }
 }
 
@@ -189,6 +190,7 @@ function handleRPMessage(data) {
       currentPersona = null;
     }
     rpResponseStyle = data.response_style;
+    initRPTextView(data.response_style);
     rpPov = data.pov || null;
     rpInnerMonologue = data.inner_monologue || false;
     rpAutoContinue = data.auto_continue !== undefined ? data.auto_continue : true;
@@ -224,6 +226,7 @@ function handleRPMessage(data) {
       currentPersona = null;
     }
     rpResponseStyle = data.response_style;
+    initRPTextView(data.response_style);
     rpPov = data.pov || null;
     rpInnerMonologue = data.inner_monologue || false;
     rpAutoContinue = data.auto_continue !== undefined ? data.auto_continue : true;
@@ -278,6 +281,7 @@ function handleRPMessage(data) {
         }
       });
     }
+    txSeedSeen();  // seeded history must not replay the burst animation
     rpVisibleCount.value = Math.min(VIRTUAL_SCROLL_BATCH, rpMessages.length);
     renderVirtualMessages('rpChatMessages', rpMessages, rpVisibleCount.value);
     initVirtualScroll('rpChatMessages', rpMessages, rpVisibleCount, rpObserver);
@@ -462,6 +466,9 @@ function renderRPSceneBar() {
 
   // Auto-continue toggle
   html += `<div class="rp-toggle-btn ${rpAutoContinue?'active':''}" onclick="rpUpdateSetting('auto_continue', ${!rpAutoContinue})" title="Auto-continue truncated responses">🔄 ${rpAutoContinue ? 'ON' : 'OFF'}</div>`;
+
+  // Texting view toggle (SMS bubbles)
+  html += `<div class="rp-toggle-btn ${rpTextView?'active':''}" onclick="toggleRPTextView()" title="Text message view — messages as SMS bubbles">📱 Texting</div>`;
 
   // Stack Builder button
   html += `<div class="rp-toggle-btn" onclick="openStackBuilder()" title="Customize prompt stack">🔗 Prompts Stack</div>`;
@@ -721,12 +728,38 @@ function onRPDirectChange() {
   // Just updates the selected target — no server call needed
 }
 
+// ─── Texting (SMS) view ──────────────────────────────────────
+// Cosmetic only: the same messages rendered as messenger bursts instead of
+// the prose console. Preference is per session (localStorage), defaulting
+// to on when the session's response style is 'texting'.
+let rpTextView = false;
+
+function isRPTextView() { return rpTextView; }
+
+function initRPTextView(style) {
+  const saved = rpActiveSessionId != null ? localStorage.getItem('kk_txview_' + rpActiveSessionId) : null;
+  rpTextView = saved !== null ? saved === '1' : style === 'texting';
+}
+
+function toggleRPTextView(force) {
+  rpTextView = (force !== undefined) ? !!force : !rpTextView;
+  if (rpActiveSessionId != null) {
+    localStorage.setItem('kk_txview_' + rpActiveSessionId, rpTextView ? '1' : '0');
+  }
+  renderRPSceneBar();
+  renderVirtualMessages('rpChatMessages', rpMessages, rpVisibleCount.value);
+}
+
 function rpUpdateSetting(key, value) {
   // update local state immediately for responsive UI
   if (key === 'pov') rpPov = value || null;
   else if (key === 'inner_monologue') rpInnerMonologue = !!value;
   else if (key === 'auto_continue') rpAutoContinue = !!value;
-  else if (key === 'response_style') rpResponseStyle = value;
+  else if (key === 'response_style') {
+    rpResponseStyle = value;
+    // Picking Texting turns on the bubble view too — the two belong together
+    if (value === 'texting' && !rpTextView) toggleRPTextView(true);
+  }
   renderRPSceneBar();
   if (rpWS && rpWS.readyState === WebSocket.OPEN) {
     const update = {type: 'update_settings'};
