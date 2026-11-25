@@ -52,5 +52,40 @@ class PhoneTextRuleTests(unittest.TestCase):
         self.assertNotIn("PHONE TEXTS", p)
 
 
+class TextingReminderTests(unittest.TestCase):
+    """The per-reply answer-in-kind reminder (author's-note position).
+
+    Field evidence: the system-prompt rule alone did not make the model
+    answer a text with a text — but typing @name DID, because it sat in
+    the final user message. The reminder rides that proven position.
+    """
+
+    @staticmethod
+    def _msgs(last_user_content):
+        return [{"role": "system", "content": "sys"},
+                {"role": "user", "content": last_user_content}]
+
+    def test_fires_when_the_last_user_message_is_a_text(self):
+        note = engine.texting_reminder_for_reply(
+            self._msgs("You: on my way"), "moderate", ["You", "User", "Farah"])
+        self.assertIsNotNone(note)
+        self.assertIn("answer with one or more `Name: message` lines of your own", note)
+
+    def test_stays_silent_for_narration(self):
+        # a prose message must never be told to answer with texts
+        self.assertIsNone(engine.texting_reminder_for_reply(
+            self._msgs("I walk in and close the door."), "moderate", ["You"]))
+
+    def test_stays_silent_in_texting_mode(self):
+        # texting mode always texts — no competing note
+        self.assertIsNone(engine.texting_reminder_for_reply(
+            self._msgs("You: on my way"), "texting", ["You"]))
+
+    def test_matches_any_known_sender_case_insensitively(self):
+        note = engine.texting_reminder_for_reply(
+            self._msgs("farah: you there?"), "moderate", ["Farah"])
+        self.assertIsNotNone(note)
+
+
 if __name__ == "__main__":
     unittest.main()

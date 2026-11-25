@@ -421,6 +421,19 @@ async def ws_rp(ws: WebSocket):
                             ),
                         )
 
+                        # Answer-in-kind at the same proven position: a rule far
+                        # from generation loses to the conversation's momentum —
+                        # typing @name worked in the field because it sat HERE.
+                        # Fires only when the last user message actually is a text.
+                        llm_messages = engine.append_length_note(
+                            llm_messages,
+                            engine.texting_reminder_for_reply(
+                                llm_messages, response_style,
+                                [*character_names.values(),
+                                 persona.get("name") if persona else None,
+                                 "You", "User"]),
+                        )
+
                         # ── Lorebook injection (one helper: placement + console event) ──
                         await lorebook.inject_lorebook(llm_messages, sess, all_msgs, _safe_send)
 
@@ -599,6 +612,17 @@ async def ws_rp(ws: WebSocket):
                                     [m.get("content", "") for m in all_msgs
                                      if m.get("role") in ("character", "assistant")],
                                 ),
+                            )
+
+                            # Answer-in-kind at the same proven position (regen
+                            # of a reply to a text must also answer with texts).
+                            llm_messages = engine.append_length_note(
+                                llm_messages,
+                                engine.texting_reminder_for_reply(
+                                    llm_messages, response_style,
+                                    [*character_names.values(),
+                                     persona.get("name") if persona else None,
+                                     "You", "User"]),
                             )
 
                             # ── Lorebook injection (one helper: placement + console event) ──

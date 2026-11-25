@@ -413,6 +413,40 @@ async def scenario_i_directed(uri):
               f"got={frames[-1][1].get('character_name')!r}")
 
 
+async def scenario_j_answer_in_kind(uri):
+    """A text gets a text back. The mock only answers with text lines when
+    it saw the per-reply reminder on the final user message — the position
+    that made @name work in the field."""
+    print("J. Answer in kind — reminder reached the wire, a text answered with texts")
+    import websockets
+
+    async with websockets.connect(uri, max_size=16 * 1024 * 1024) as ws:
+        await ws.send(json.dumps({"type": "start", "characters": ["p_ramlee.json"]}))
+        started = await collect_until(ws, lambda f: f.get("type") == "session_started")
+        speaker = started[-1][1]["characters"][0]["name"]
+        await collect_until(ws, lambda f: f.get("type") == "character_message")
+
+        # a TEXT from the user (the phone-input format)
+        await ws.send(json.dumps({"type": "user_message",
+                                  "content": "You: coming over or what"}))
+        frames = await collect_until(ws, lambda f: f.get("type") == "character_message"
+                                     and not f.get("is_first_mes"))
+        final = frames[-1][1]["content"]
+        lines = [ln for ln in final.splitlines() if ln.startswith(speaker + ":")]
+        check("reminder reached the wire (text answered with text lines)", len(lines) >= 1,
+              f"lines={len(lines)}")
+
+        # narration must NOT trigger the reminder — mock would answer with texts
+        await ws.send(json.dumps({"type": "user_message",
+                                  "content": "I walk in and close the door."}))
+        frames = await collect_until(ws, lambda f: f.get("type") == "character_message"
+                                     and not f.get("is_first_mes"))
+        final2 = frames[-1][1]["content"]
+        check("narration is answered with narration (no reminder fired)",
+              not any(ln.startswith(speaker + ":") for ln in final2.splitlines()),
+              f"content={final2[:50]!r}")
+
+
 def start_app(workdir, env_overrides, log_path):
     env = dict(os.environ)
     env.update(env_overrides)
@@ -474,6 +508,7 @@ async def main():
         await scenario_g_texting(ws_uri)
         await scenario_h_text_lines(ws_uri)
         await scenario_i_directed(ws_uri)
+        await scenario_j_answer_in_kind(ws_uri)
 
         # Swap the mock for one that refuses streaming, then re-run D
         mock.terminate()

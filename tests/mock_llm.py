@@ -146,6 +146,9 @@ async def chat_completions(request: Request):
         reply, finish = LONG_REPLY, "stop"
     elif "PHONE TEXTS" in system_text and "TEXTS" in user_text:
         reply, finish, plain = reply_with_texts(speaker_from(messages)), "stop", True
+    elif "The user's last message was a text" in user_text:
+        # the per-reply reminder rode the final user message — answer in kind
+        reply, finish, plain = reply_with_texts(speaker_from(messages)), "stop", True
     else:
         reply, finish = REPLY, "stop"
 

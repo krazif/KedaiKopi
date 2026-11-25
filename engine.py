@@ -1171,6 +1171,35 @@ def length_note_for_reply(response_style: Optional[str],
             "End the reply when the scene beat is done; never end on a handover cue.]")
 
 
+def texting_reminder_for_reply(llm_messages: list, response_style: Optional[str],
+                               known_names: list) -> Optional[str]:
+    """Per-reply answer-in-kind reminder (author's-note position).
+
+    The system prompt carries the PHONE TEXTS rule, but a rule far from
+    the generation point loses to the conversation's momentum — the same
+    reason the length note exists, and the same reason typing `@name` in
+    the message worked in field testing: proximity wins. Fires ONLY when
+    the user's last message actually is a text, so narration replies are
+    never told to text, and never in texting mode (which always texts).
+    """
+    if response_style == "texting":
+        return None
+    last_user = None
+    for m in reversed(llm_messages):
+        if m.get("role") == "user":
+            last_user = m
+            break
+    if not last_user:
+        return None
+    first = (last_user.get("content") or "").strip().split("\n", 1)[0].strip()
+    for n in sorted((x for x in known_names if x), key=len, reverse=True):
+        if len(first) > len(n) + 1 and first[:len(n) + 1].lower() == (n + ":").lower():
+            return ("The user's last message was a text — answer with one or more "
+                    "`Name: message` lines of your own, not narration. Narrate only "
+                    "if the scene itself demands it.")
+    return None
+
+
 def append_length_note(llm_messages: list, note: Optional[str]) -> list:
     """Put the note in author's-note position: appended to the last user message,
     or as a standalone user message if the last message isn't one.
