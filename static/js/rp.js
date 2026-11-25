@@ -819,6 +819,8 @@ function rpUpdateSetting(key, value) {
     if (value === 'texting' && !rpTextView) toggleRPTextView(true);
     // The phone's interpretation of stored messages changes with the style
     if (isRPPhoneDockOpen()) renderVirtualMessages('rpPhoneMessages', rpMessages, rpPhoneVisible.value);
+    // …and so does the prose pane (chips vs raw mirror)
+    renderVirtualMessages('rpChatMessages', rpMessages, rpVisibleCount.value);
   }
   renderRPSceneBar();
   if (rpWS && rpWS.readyState === WebSocket.OPEN) {

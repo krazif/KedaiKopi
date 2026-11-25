@@ -522,9 +522,12 @@ def build_rp_system_prompt(cards: list[dict], persona: dict = None,
     # format and this would contradict "no speaker tags".
     if response_style != "texting":
         parts.append("PHONE TEXTS: when a character sends a text message, write it on its own line")
-        parts.append("as `Name: message` — the sender's name, a colon, then the text only (example:")
-        parts.append("`Lisa: leaving in twenty minutes`). No italics, quotes or action framing around")
-        parts.append("that line; everything around it stays prose.")
+        parts.append("as `Name: message` — the sender's name, a colon, then the message only")
+        parts.append("(example: `Lisa: leaving in twenty minutes`). The line holds the message and")
+        parts.append("nothing else: no narration, no actions, no stage directions, no quotes or")
+        parts.append("italics inside it or around it. Narration stays outside the line.")
+        parts.append("A reply may be one or more of these lines with no narration at all —")
+        parts.append("when you are answering the phone, just text.")
         parts.append("")
     parts.append("")
 

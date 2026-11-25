@@ -201,12 +201,24 @@ function stripOwnSenderPrefix(content, msg) {
   return content;
 }
 
-// Prose pane: known `Name:` lines become text blocks, everything else
-// stays prose (consecutive prose lines share one formatMessage pass).
+// Prose pane = narration only. Recognized text lines are parsed OUT of
+// the chat and live in the phone; each message leaves a tappable chip
+// where they were, so closing the phone never hides content silently.
+// Texting-style sessions keep the raw mirror (that pane pair IS the
+// conversation there) — exclusion is for RP, where texts mix into prose.
 function renderProseContent(content) {
   const frag = document.createDocumentFragment();
+  if (typeof rpResponseStyle !== 'undefined' && rpResponseStyle === 'texting') {
+    const div = document.createElement('div');
+    div.className = 'rp-prose-run';
+    div.innerHTML = formatMessage(content || '');
+    frag.appendChild(div);
+    return frag;
+  }
   const names = knownTextSenders();
   let proseRun = [];
+  let chip = null;
+  let dropped = 0;
   const flushProse = () => {
     if (!proseRun.length) return;
     const div = document.createElement('div');
@@ -216,24 +228,22 @@ function renderProseContent(content) {
     proseRun = [];
   };
   (content || '').split('\n').forEach(line => {
-    const hit = matchTextLine(line, names);
-    if (hit) {
+    if (matchTextLine(line, names)) {
       flushProse();
-      const div = document.createElement('div');
-      div.className = 'rp-text-line';
-      const sender = document.createElement('span');
-      sender.className = 'rp-text-sender';
-      sender.textContent = hit.name + ':';
-      div.appendChild(sender);
-      const body = document.createElement('span');
-      body.innerHTML = formatMessage(hit.text);
-      div.appendChild(body);
-      frag.appendChild(div);
+      if (!chip) {
+        chip = document.createElement('div');
+        chip.className = 'rp-texts-chip';
+        chip.title = 'Show in the phone';
+        chip.onclick = () => toggleRPTextView(true);
+        frag.appendChild(chip);
+      }
+      dropped++;
     } else {
       proseRun.push(line);
     }
   });
   flushProse();
+  if (chip) chip.textContent = `💬 ${dropped} text${dropped > 1 ? 's' : ''}`;
   return frag;
 }
 
