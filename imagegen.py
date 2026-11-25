@@ -238,11 +238,11 @@ Writing the caption:
 1. Faithfulness. Every subject, action, clothing item and count comes from the chat. Never contradict the chat; invent no props, characters or plot.
 2. Location, in precedence: what the chat states; if the chat only implies it, make the implication explicit; if the chat is silent, the location from the character's scenario; if that is silent too, stay generic ("a simple interior"). Never invent specifics you were not given.
 3. Visuals only — what a camera would see. No dialogue, speech, sounds, thoughts or backstory: spoken lines are never rendered as text. Visible writing the chat mentions (a sign, a note) is quoted verbatim in double quotes with its placement.
-4. Appearance comes from the character context below (face, hair, outfit) — that is how these people look in every image. The chat decides what they do and where they are.
+4. Identity comes from the character context below (face, hair, body) — that is how these people look in every image. The chat decides what they do, where they are, and what they are wearing: clothing or nudity follows the chat, never the card's default outfit.
 5. Structure: subject first with its action and position; then setting with word positions (left, right, foreground, background); then camera, medium, light, materials, palette, mood. One subject per clause, concrete verbs, simple prepositions. Plain prose — no lists, no markdown, no quality words ("masterpiece, 8k, ultra-detailed" are banned).
 6. Camera: keep any vantage the chat states (POV, first-person, over-the-shoulder, low angle, "seen from behind") and compose around it; otherwise eye level. Never re-frame mid-caption.
 7. Style budget: use each given phrase exactly once — one medium, one lighting, one mood. If none is given, choose fitting ones yourself.
-8. People with dignity: clothing covers anatomy, no nudity or body-measurement detail; minors clothed and non-sexualized. An unsafe request gets one short refusal line and no caption.
+8. Depict the scene as the chat shows it: nudity, partial nudity and sexual content are described plainly when that is what is happening — never softened, implied, or re-clothed. Sexualized minors are refused with one short refusal line and no caption.
 9. No living artists — translate a named artist into observable traits instead.
 10. Output: one paragraph, target {words} words, hard ceiling 512 tokens. Reply with the caption alone — or the single word SKIP. No preamble, no wrapping quotes, no explanation."""
 

@@ -6,6 +6,7 @@ import asyncio
 import json
 import os
 import sqlite3
+import time
 import uuid
 from pathlib import Path
 from fastapi import APIRouter, File as FastAPIFile, Request, WebSocket, WebSocketDisconnect, UploadFile
@@ -181,6 +182,7 @@ async def _rp_summarize_block(session_id: int, block_index, _safe_send) -> None:
 @router.websocket("/ws/rp")
 async def ws_rp(ws: WebSocket):
     await ws.accept()
+    print(f"[RP WS] {time.strftime('%H:%M:%S')} connection open", flush=True)
 
     session_id = None
     cards = {}          # filename -> card dict
@@ -982,11 +984,19 @@ async def ws_rp(ws: WebSocket):
                 # Reload session list to update title in sidebar
                 await _safe_send({"type": "reload_sessions"})
 
-    except (WebSocketDisconnect, WebSocketDisconnected):
-        # Normal close path: the client navigated away / reconnected / reloaded,
-        # or a send already failed and Starlette marked the socket DISCONNECTED.
-        # Not an error — no traceback.
-        print("[RP WS] client disconnected", flush=True)
+    except WebSocketDisconnect as exc:
+        # Normal close path — NOT an error, no traceback. The code says who
+        # hung up: 1000 clean close (tab closed / our own socket swap),
+        # 1001 going away (page refresh / navigating off), 1006 no goodbye at
+        # all (laptop sleep, Wi-Fi blip, RST). session= shows what was live.
+        print(f"[RP WS] {time.strftime('%H:%M:%S')} client disconnected "
+              f"code={exc.code} reason={exc.reason!r} session={session_id}", flush=True)
+
+    except WebSocketDisconnected:
+        # A send already failed first and Starlette marked the socket dead —
+        # also a normal path (the client left mid-send).
+        print(f"[RP WS] {time.strftime('%H:%M:%S')} client disconnected "
+              f"(send failed first — socket already gone) session={session_id}", flush=True)
 
     except Exception as e:
         import traceback
@@ -1053,7 +1063,7 @@ async def get_config():
         "imagegen": {
             "enabled": _c.get("imagegen", {}).get("enabled", False),
             "base_url": _c.get("imagegen", {}).get("base_url", "http://127.0.0.1:8188"),
-            "negative_prompt": _c.get("imagegen", {}).get("negative_prompt", "nsfw, worst quality, bad anatomy, watermark, jpeg artifact"),
+            "negative_prompt": _c.get("imagegen", {}).get("negative_prompt", "worst quality, bad anatomy, watermark, jpeg artifact"),
             "width": _c.get("imagegen", {}).get("width", 512),
             "height": _c.get("imagegen", {}).get("height", 768),
             "steps": _c.get("imagegen", {}).get("steps", 50),

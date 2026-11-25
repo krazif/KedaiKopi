@@ -47,6 +47,19 @@ class TestCaptionSystemPrompt(unittest.TestCase):
         wc = len(imagegen.auto_img_system().split())
         self.assertLess(wc, 420, f"system prompt grew to {wc} words")
 
+    def test_nsfw_is_described_not_sanitized(self):
+        # "if it is naked, should be naked" — the old dignity rule re-clothed
+        # NSFW scenes; the captioner must follow the chat's state of dress.
+        sysp = imagegen.auto_img_system()
+        self.assertNotIn("clothing covers anatomy", sysp)
+        self.assertNotIn("no nudity", sysp)
+        self.assertIn("re-clothed", sysp)
+        self.assertIn("never the card", sysp)   # chat overrides card outfit
+
+    def test_minors_refusal_still_present(self):
+        # The one refusal that stays regardless of uncensoring.
+        self.assertIn("Sexualized minors are refused", imagegen.auto_img_system())
+
 
 def _msgs(n=15):
     return [{"role": "user" if i % 2 == 0 else "character",

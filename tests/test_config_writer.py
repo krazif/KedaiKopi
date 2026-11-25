@@ -42,8 +42,11 @@ class TestConfigWriterPreservesUnknownKeys(unittest.TestCase):
         self.assertEqual(back["server"]["port"], 7864)
         self.assertIn("reasoning_effort", back["chat"])
         self.assertIn("venice", back["chat"])
-        # official MOSS negatives are the default
+        # official MOSS negatives are the default — but "nsfw" must NOT be
+        # among them: it actively suppresses the explicit output the RP
+        # captioner is now asked to describe ("if it is naked, should be naked")
         self.assertIn("bad anatomy", back["imagegen"]["negative_prompt"])
+        self.assertNotIn("nsfw", back["imagegen"]["negative_prompt"].lower())
 
     def test_save_is_idempotent(self):
         path = tmp_path()
