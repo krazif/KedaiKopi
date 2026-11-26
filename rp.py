@@ -27,6 +27,22 @@ MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10 MB
 RESUME_CONSOLE_LIMIT = 50
 
 
+# Sessions with a reply generation in flight — the resume recovery must
+# never fire a second generation for a message one is already answering.
+_generating_sessions: set = set()
+
+
+def _spawn_gen(session_id, coro):
+    """Run a generation task, tracking the session as busy while it runs."""
+    async def _run():
+        _generating_sessions.add(session_id)
+        try:
+            await coro
+        finally:
+            _generating_sessions.discard(session_id)
+    return asyncio.create_task(_run())
+
+
 def _delta_sender(send, character_name=None):
     """Build the on_delta callback for a streaming character reply.
 
@@ -205,6 +221,174 @@ async def ws_rp(ws: WebSocket):
         except Exception:
             _ws_state[0] = False
 
+    async def _rp_gen(session_id, cards, character_names, character_order,
+                      persona, response_style, directed_to, pov,
+                      inner_monologue, auto_continue):
+        try:
+            # ── Auto-summary check (after user message, before LLM) ──
+            if _ws_state[0]:
+                await check_auto_summary(session_id, ws, send_fn=_safe_send)
+
+            # Get stack config
+            sess = db.db_rp_get_session(session_id)
+            stack_cfg = db.get_stack_config(sess)
+
+            # Build system prompt
+            system_prompt = engine.build_rp_system_prompt(
+                [cards[fn] for fn in character_order],
+                persona, response_style,
+                directed_character=character_names.get(directed_to) if directed_to else None,
+                pov=pov, inner_monologue=inner_monologue,
+            )
+
+            # Build LLM messages from stack config
+            all_msgs = db.db_rp_get_messages(session_id)
+            llm_messages, block_markers = db.build_llm_messages_from_stack(
+                stack_cfg, system_prompt, all_msgs,
+            )
+            # Voice anchor, history side: mark the aimed character's
+            # past turns `[Name (you)]:` — the model imitates the most
+            # RECENT voice in history, so when another character's
+            # prose dominates, the reply came out in that voice and
+            # got stamped with the aimed name ("Lisa under Farah's
+            # name", field report). LLM input only.
+            if directed_to and directed_to in character_names:
+                llm_messages = engine.mark_directed_voice(
+                    llm_messages, character_names[directed_to])
+            # Exactly ONE note in author's-note position (last user
+            # message): a text gets the answer-in-kind reminder, prose
+            # gets the length note — never both. Appending both handed
+            # the model "150-300 words" next to "no narration" at the
+            # decisive position and it chose prose (field regression).
+            llm_messages = engine.append_length_note(
+                llm_messages,
+                engine.per_reply_note(
+                    llm_messages, response_style,
+                    [*character_names.values(),
+                     persona.get("name") if persona else None,
+                     "You", "User"],
+                    [m.get("content", "") for m in all_msgs
+                     if m.get("role") in ("character", "assistant")],
+                    directed_name=character_names.get(directed_to)),
+            )
+
+            # ── Lorebook injection (one helper: placement + console event) ──
+            await lorebook.inject_lorebook(llm_messages, sess, all_msgs, _safe_send)
+
+            # Typing indicator
+            if not _ws_state[0]: return
+            if directed_to and directed_to in character_names:
+                await _safe_send({"type": "character_typing", "character_filename": directed_to, "character_name": character_names[directed_to]})
+            else:
+                await _safe_send({"type": "character_typing", "character_filename": None, "character_name": None})
+
+            effective_max_tokens = engine.response_style_max_tokens(response_style, db.CHAT_MAX_TOKENS)
+
+            # Console: log request
+            await _safe_send({
+                "type": "console_event", "event": "request", "llm": "character",
+                "model": db.CHAT_MODEL, "temperature": db.CHAT_TEMPERATURE, "max_tokens": effective_max_tokens,
+                "messages": [{"role": m["role"], "content": m["content"]} for m in llm_messages],
+                "block_markers": block_markers,
+                "token_estimate": engine.estimate_tokens(llm_messages),
+                "timestamp": engine._now_iso(),
+            })
+
+            kwargs = dict(
+                model=db.CHAT_MODEL, messages=llm_messages,
+                temperature=db.CHAT_TEMPERATURE, max_tokens=effective_max_tokens,
+                extra_body=engine.build_extra_body(db.CHAT_MODEL, db.CHAT_ENABLE_THINKING),
+            )
+            if db.CHAT_TOP_P is not None:
+                kwargs["top_p"] = db.CHAT_TOP_P
+            if db.CHAT_TOP_K is not None:
+                kwargs["top_k"] = db.CHAT_TOP_K
+            await _safe_send({
+                "type": "console_event", "event": "request_kwargs", "llm": "character",
+                "label": "Character", "kwargs": kwargs, "timestamp": engine._now_iso(),
+            })
+            if not _ws_state[0]: return
+            on_delta = _delta_sender(_safe_send, character_names.get(directed_to) if directed_to else (character_names.get(character_order[0]) if character_order else None))
+            resp = await engine.stream_chat_completion(
+                db.chat_client, kwargs, on_delta=on_delta, hold_prefix=not directed_to,
+            )
+            raw_content = resp.choices[0].message.content
+            usage = resp.usage
+
+            if not _ws_state[0]: return
+            await _safe_send({
+                "type": "console_event", "event": "response", "llm": "character",
+                "model": db.CHAT_MODEL, "content": raw_content,
+                "usage": {"prompt_tokens": usage.prompt_tokens, "completion_tokens": usage.completion_tokens, "total_tokens": usage.total_tokens} if usage else None,
+                "finish_reason": resp.choices[0].finish_reason, "timestamp": engine._now_iso(),
+            })
+
+            # ── Auto-continue if truncated (finish_reason=length) ──
+            if not _ws_state[0]: return
+            raw_content, _final_fr = await engine.maybe_auto_continue(
+                db.chat_client, kwargs, resp, auto_continue,
+                send_fn=_safe_send,
+                on_delta=on_delta,
+            )
+
+            parsed = engine.parse_rp_response(raw_content, character_names, character_order)
+
+            if directed_to and directed_to in character_names:
+                # Directed mode: raw output IS the response, no [Name]: prefix expected
+                directed_name = character_names[directed_to]
+                parsed = [{"filename": directed_to, "name": directed_name, "content": engine.strip_bracketed_echo(raw_content.strip())}]
+            elif parsed:
+                # Auto mode: keep what the stream showed — every real
+                # character's block, never the persona's lines
+                parsed = engine.auto_mode_segments(parsed, persona_name=persona.get("name") if isinstance(persona, dict) else None)
+            else:
+                # No [Name]: prefix — attribute to first character
+                fn = character_order[0] if character_order else None
+                name = character_names.get(fn, "Unknown")
+                parsed = [{"filename": fn, "name": name, "content": raw_content.strip()}]
+
+            await _safe_send({"type": "character_typing_stopped"})
+
+            if parsed:
+                # speaker-attributed dialogue gets its own bubble
+                parsed = engine.split_dialogue_messages(parsed, character_names, persona_name=persona.get("name") if isinstance(persona, dict) else None)
+                for pr in parsed:
+                    msg_id = db.db_rp_add_message(session_id, "character", pr["content"], pr["name"])
+                    await _safe_send({
+                        "type": "character_message", "content": pr["content"],
+                        "character_filename": pr["filename"], "character_name": pr["name"],
+                        "is_first_mes": False, "message_id": msg_id,
+                        "truncated": _final_fr == "length",
+                    })
+            # image_path is not generated by LLM; left for future image-prompt extensions
+
+            # ── Auto-summary check (after character messages added) ──
+            if _ws_state[0]:
+                await check_auto_summary(session_id, ws, send_fn=_safe_send)
+
+            # ── Auto image generation (Phase 3) ──
+            if _ws_state[0] and db.IMAGEGEN_AUTO_ENABLED:
+                async def _rp_auto_img_add(img_path, img_prompt=None, img_seed=None):
+                    _pn = persona.get("name") if persona else None
+                    msg_id_img = db.db_rp_add_message(session_id, "user", "", persona_name=_pn, image_path=img_path, image_prompt=img_prompt, seed=img_seed)
+                    await _safe_send({
+                        "type": "character_message", "content": "",
+                        "character_filename": None, "character_name": None,
+                        "is_first_mes": False, "message_id": msg_id_img, "image_path": img_path, "image_prompt": img_prompt, "seed": img_seed,
+                    })
+                all_msgs_for_img = db.db_rp_get_messages(session_id)
+                await imagegen.maybe_auto_generate_image(
+                    session_id, all_msgs_for_img, _safe_send,                                 image_add_fn=_rp_auto_img_add,
+                )
+
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            await _safe_send({"type": "character_typing_stopped"})
+            await _safe_send({"type": "error", "message": f"LLM error: {e}"})
+
+
+
     try:
         while True:
             data = await ws.receive_json()
@@ -365,12 +549,25 @@ async def ws_rp(ws: WebSocket):
                     "pov": pov, "inner_monologue": inner_monologue, "auto_continue": auto_continue, "image_pov": image_pov,
                     "stack_config": stack_cfg,
                     "lorebooks": session_lorebooks,
-                    "messages": [{"id": m["id"], "role": m["role"], "speaker": m["speaker"], "content": m["content"], "persona_name": m.get("persona_name"), "image_path": m.get("image_path"), "image_prompt": m.get("image_prompt"), "seed": m.get("seed"), "swipes": m.get("swipes"), "active_swipe": m.get("active_swipe", 0)} for m in messages],
+                    "messages": [{"id": m["id"], "role": m["role"], "speaker": m["speaker"], "content": m["content"], "persona_name": m.get("persona_name"), "image_path": m.get("image_path"), "image_prompt": m.get("image_prompt"), "seed": m.get("seed"), "swipes": m.get("swipes"), "active_swipe": m.get("active_swipe", 0), "client_msg_id": m.get("client_msg_id")} for m in messages],
                     "console_events": [],
                     "console_events_truncated": len(json.loads(sess.get("console_events", "[]")) if sess.get("console_events") else []) > 0,
                     "system_prompt": _sys_prompt,
                     "bg_image": sess.get("bg_image"),
                 })
+
+                # ── Missed-reply recovery ── a disconnect mid-generation or
+                # an LLM error can leave the last message unanswered. On
+                # resume, generate that reply instead of making him re-send
+                # the entry. Skipped while a generation is already in flight
+                # for this session — never a double reply.
+                if engine.needs_reply_recovery(messages) and session_id not in _generating_sessions:
+                    await _safe_send({"type": "system_notice",
+                                      "text": "Your last message never got a reply \u2014 generating it now."})
+                    current_gen_task = _spawn_gen(session_id, _rp_gen(
+                        session_id, cards, character_names, character_order,
+                        persona, response_style, None, pov, inner_monologue,
+                        auto_continue))
 
             elif data["type"] == "user_message":
                 user_content = data.get("content", "") or ""
@@ -388,171 +585,7 @@ async def ws_rp(ws: WebSocket):
                 if not user_content.strip() and image_path:
                     continue
 
-                async def _rp_gen():
-                    try:
-                        # ── Auto-summary check (after user message, before LLM) ──
-                        if _ws_state[0]:
-                            await check_auto_summary(session_id, ws, send_fn=_safe_send)
-
-                        # Get stack config
-                        sess = db.db_rp_get_session(session_id)
-                        stack_cfg = db.get_stack_config(sess)
-
-                        # Build system prompt
-                        system_prompt = engine.build_rp_system_prompt(
-                            [cards[fn] for fn in character_order],
-                            persona, response_style,
-                            directed_character=character_names.get(directed_to) if directed_to else None,
-                            pov=pov, inner_monologue=inner_monologue,
-                        )
-
-                        # Build LLM messages from stack config
-                        all_msgs = db.db_rp_get_messages(session_id)
-                        llm_messages, block_markers = db.build_llm_messages_from_stack(
-                            stack_cfg, system_prompt, all_msgs,
-                        )
-                        # Voice anchor, history side: mark the aimed character's
-                        # past turns `[Name (you)]:` — the model imitates the most
-                        # RECENT voice in history, so when another character's
-                        # prose dominates, the reply came out in that voice and
-                        # got stamped with the aimed name ("Lisa under Farah's
-                        # name", field report). LLM input only.
-                        if directed_to and directed_to in character_names:
-                            llm_messages = engine.mark_directed_voice(
-                                llm_messages, character_names[directed_to])
-                        # Exactly ONE note in author's-note position (last user
-                        # message): a text gets the answer-in-kind reminder, prose
-                        # gets the length note — never both. Appending both handed
-                        # the model "150-300 words" next to "no narration" at the
-                        # decisive position and it chose prose (field regression).
-                        llm_messages = engine.append_length_note(
-                            llm_messages,
-                            engine.per_reply_note(
-                                llm_messages, response_style,
-                                [*character_names.values(),
-                                 persona.get("name") if persona else None,
-                                 "You", "User"],
-                                [m.get("content", "") for m in all_msgs
-                                 if m.get("role") in ("character", "assistant")],
-                                directed_name=character_names.get(directed_to)),
-                        )
-
-                        # ── Lorebook injection (one helper: placement + console event) ──
-                        await lorebook.inject_lorebook(llm_messages, sess, all_msgs, _safe_send)
-
-                        # Typing indicator
-                        if not _ws_state[0]: return
-                        if directed_to and directed_to in character_names:
-                            await _safe_send({"type": "character_typing", "character_filename": directed_to, "character_name": character_names[directed_to]})
-                        else:
-                            await _safe_send({"type": "character_typing", "character_filename": None, "character_name": None})
-
-                        effective_max_tokens = engine.response_style_max_tokens(response_style, db.CHAT_MAX_TOKENS)
-
-                        # Console: log request
-                        await _safe_send({
-                            "type": "console_event", "event": "request", "llm": "character",
-                            "model": db.CHAT_MODEL, "temperature": db.CHAT_TEMPERATURE, "max_tokens": effective_max_tokens,
-                            "messages": [{"role": m["role"], "content": m["content"]} for m in llm_messages],
-                            "block_markers": block_markers,
-                            "token_estimate": engine.estimate_tokens(llm_messages),
-                            "timestamp": engine._now_iso(),
-                        })
-
-                        kwargs = dict(
-                            model=db.CHAT_MODEL, messages=llm_messages,
-                            temperature=db.CHAT_TEMPERATURE, max_tokens=effective_max_tokens,
-                            extra_body=engine.build_extra_body(db.CHAT_MODEL, db.CHAT_ENABLE_THINKING),
-                        )
-                        if db.CHAT_TOP_P is not None:
-                            kwargs["top_p"] = db.CHAT_TOP_P
-                        if db.CHAT_TOP_K is not None:
-                            kwargs["top_k"] = db.CHAT_TOP_K
-                        await _safe_send({
-                            "type": "console_event", "event": "request_kwargs", "llm": "character",
-                            "label": "Character", "kwargs": kwargs, "timestamp": engine._now_iso(),
-                        })
-                        if not _ws_state[0]: return
-                        on_delta = _delta_sender(_safe_send, character_names.get(directed_to) if directed_to else (character_names.get(character_order[0]) if character_order else None))
-                        resp = await engine.stream_chat_completion(
-                            db.chat_client, kwargs, on_delta=on_delta, hold_prefix=not directed_to,
-                        )
-                        raw_content = resp.choices[0].message.content
-                        usage = resp.usage
-
-                        if not _ws_state[0]: return
-                        await _safe_send({
-                            "type": "console_event", "event": "response", "llm": "character",
-                            "model": db.CHAT_MODEL, "content": raw_content,
-                            "usage": {"prompt_tokens": usage.prompt_tokens, "completion_tokens": usage.completion_tokens, "total_tokens": usage.total_tokens} if usage else None,
-                            "finish_reason": resp.choices[0].finish_reason, "timestamp": engine._now_iso(),
-                        })
-
-                        # ── Auto-continue if truncated (finish_reason=length) ──
-                        if not _ws_state[0]: return
-                        raw_content, _final_fr = await engine.maybe_auto_continue(
-                            db.chat_client, kwargs, resp, auto_continue,
-                            send_fn=_safe_send,
-                            on_delta=on_delta,
-                        )
-
-                        parsed = engine.parse_rp_response(raw_content, character_names, character_order)
-
-                        if directed_to and directed_to in character_names:
-                            # Directed mode: raw output IS the response, no [Name]: prefix expected
-                            directed_name = character_names[directed_to]
-                            parsed = [{"filename": directed_to, "name": directed_name, "content": engine.strip_bracketed_echo(raw_content.strip())}]
-                        elif parsed:
-                            # Auto mode: keep what the stream showed — every real
-                            # character's block, never the persona's lines
-                            parsed = engine.auto_mode_segments(parsed, persona_name=persona.get("name") if isinstance(persona, dict) else None)
-                        else:
-                            # No [Name]: prefix — attribute to first character
-                            fn = character_order[0] if character_order else None
-                            name = character_names.get(fn, "Unknown")
-                            parsed = [{"filename": fn, "name": name, "content": raw_content.strip()}]
-
-                        await _safe_send({"type": "character_typing_stopped"})
-
-                        if parsed:
-                            # speaker-attributed dialogue gets its own bubble
-                            parsed = engine.split_dialogue_messages(parsed, character_names, persona_name=persona.get("name") if isinstance(persona, dict) else None)
-                            for pr in parsed:
-                                msg_id = db.db_rp_add_message(session_id, "character", pr["content"], pr["name"])
-                                await _safe_send({
-                                    "type": "character_message", "content": pr["content"],
-                                    "character_filename": pr["filename"], "character_name": pr["name"],
-                                    "is_first_mes": False, "message_id": msg_id,
-                                    "truncated": _final_fr == "length",
-                                })
-                        # image_path is not generated by LLM; left for future image-prompt extensions
-
-                        # ── Auto-summary check (after character messages added) ──
-                        if _ws_state[0]:
-                            await check_auto_summary(session_id, ws, send_fn=_safe_send)
-
-                        # ── Auto image generation (Phase 3) ──
-                        if _ws_state[0] and db.IMAGEGEN_AUTO_ENABLED:
-                            async def _rp_auto_img_add(img_path, img_prompt=None, img_seed=None):
-                                _pn = persona.get("name") if persona else None
-                                msg_id_img = db.db_rp_add_message(session_id, "user", "", persona_name=_pn, image_path=img_path, image_prompt=img_prompt, seed=img_seed)
-                                await _safe_send({
-                                    "type": "character_message", "content": "",
-                                    "character_filename": None, "character_name": None,
-                                    "is_first_mes": False, "message_id": msg_id_img, "image_path": img_path, "image_prompt": img_prompt, "seed": img_seed,
-                                })
-                            all_msgs_for_img = db.db_rp_get_messages(session_id)
-                            await imagegen.maybe_auto_generate_image(
-                                session_id, all_msgs_for_img, _safe_send,                                 image_add_fn=_rp_auto_img_add,
-                            )
-
-                    except asyncio.CancelledError:
-                        raise
-                    except Exception as e:
-                        await _safe_send({"type": "character_typing_stopped"})
-                        await _safe_send({"type": "error", "message": f"LLM error: {e}"})
-
-                current_gen_task = asyncio.create_task(_rp_gen())
+                current_gen_task = _spawn_gen(session_id, _rp_gen(session_id, cards, character_names, character_order, persona, response_style, directed_to, pov, inner_monologue, auto_continue))
                 continue  # back to main receive_json loop (handles stop)
 
             elif data["type"] == "delete_message":
@@ -737,7 +770,7 @@ async def ws_rp(ws: WebSocket):
                             await _safe_send({"type": "character_typing_stopped"})
                             await _safe_send({"type": "error", "message": f"Regenerate error: {e}"})
 
-                    current_gen_task = asyncio.create_task(_rp_regen())
+                    current_gen_task = _spawn_gen(session_id, _rp_regen())
                     continue
 
             elif data["type"] == "swipe_message":
@@ -889,7 +922,7 @@ async def ws_rp(ws: WebSocket):
                             await _safe_send({"type": "character_typing_stopped"})
                             await _safe_send({"type": "error", "message": f"Continue error: {e}"})
 
-                    current_gen_task = asyncio.create_task(_rp_cont())
+                    current_gen_task = _spawn_gen(session_id, _rp_cont())
                     continue
 
             elif data["type"] == "update_settings":

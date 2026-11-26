@@ -120,6 +120,14 @@ function startRPSession() {
 // leave the pill on "Disconnected" forever with sends silently dropped.
 // Now: retry with exponential backoff and re-resume the active session
 // when the socket comes back.
+// ── Outbox + delivery tracking ── a send into a dead socket used to
+// vanish: the bubble showed but the server never got the message, so no
+// reply ever came and he had to re-paste the entry. Sends while
+// disconnected now queue and flush on resume, and any send the server
+// never acked (half-open socket) is re-sent when history re-syncs.
+const rpOutbox = [];               // queued while the socket is down
+const rpUnacked = new Map();       // clientId -> payload, until the server acks
+
 let rpReconnectTimer = null;
 let rpReconnectDelay = 1000;          // 1s, 2s, 4s, capped at 8s
 let rpConnLostShown = false;          // one "connection lost" line per outage
@@ -282,11 +290,11 @@ function handleRPMessage(data) {
     if (data.messages) {
       data.messages.forEach(m => {
         if (m.role === 'user') {
-          rpMessages.push({ role: 'user', content: m.content, speaker: null, messageId: m.id, clientId: null, personaName: m.persona_name || null, imagePath: m.image_path || null, imagePrompt: m.image_prompt || null, seed: m.seed, swipes: m.swipes || null, activeSwipe: m.active_swipe || 0 });
+          rpMessages.push({ role: 'user', content: m.content, speaker: null, messageId: m.id, clientId: m.client_msg_id || null, personaName: m.persona_name || null, imagePath: m.image_path || null, imagePrompt: m.image_prompt || null, seed: m.seed, swipes: m.swipes || null, activeSwipe: m.active_swipe || 0 });
         } else if (m.role === 'character') {
-          rpMessages.push({ role: 'character', content: m.content, speaker: m.speaker, messageId: m.id, clientId: null, imagePath: m.image_path || null, imagePrompt: m.image_prompt || null, seed: m.seed, swipes: m.swipes || null, activeSwipe: m.active_swipe || 0 });
+          rpMessages.push({ role: 'character', content: m.content, speaker: m.speaker, messageId: m.id, clientId: m.client_msg_id || null, imagePath: m.image_path || null, imagePrompt: m.image_prompt || null, seed: m.seed, swipes: m.swipes || null, activeSwipe: m.active_swipe || 0 });
         } else if (m.role === 'system') {
-          rpMessages.push({ role: 'system', content: m.content, speaker: null, messageId: m.id, clientId: null, imagePath: m.image_path || null, imagePrompt: m.image_prompt || null, seed: m.seed, swipes: m.swipes || null, activeSwipe: m.active_swipe || 0 });
+          rpMessages.push({ role: 'system', content: m.content, speaker: null, messageId: m.id, clientId: m.client_msg_id || null, imagePath: m.image_path || null, imagePrompt: m.image_prompt || null, seed: m.seed, swipes: m.swipes || null, activeSwipe: m.active_swipe || 0 });
         }
       });
     }
@@ -309,6 +317,26 @@ function handleRPMessage(data) {
        el.classList.toggle('active', parseInt(el.dataset.sessionId) === rpActiveSessionId);
      });
     applyRPPhoneDock();  // after clearRPChat: re-seed, re-init the phone scroll
+    // ── Flush queued / undelivered sends ── messages the server never
+    // received (queued while down, or sent into a half-open socket) are
+    // re-sent now that history is re-synced; matched by client_msg_id so
+    // a send the server DID get is never duplicated.
+    {
+      const knownIds = new Set((data.messages || []).map(m => m.client_msg_id).filter(Boolean));
+      rpUnacked.forEach((_, cid) => { if (knownIds.has(cid)) rpUnacked.delete(cid); });
+      const resend = [...rpUnacked.values()];
+      rpOutbox.splice(0).forEach(payload => resend.push(payload));
+      resend.forEach(payload => {
+        // the optimistic bubble was wiped by the history re-render — re-add
+        addRPMessage('user', payload.content, null, null, payload.clientId, payload.imagePath || null);
+        rpWS.send(JSON.stringify({type: 'user_message', content: payload.content, directed_to: payload.directedTo || null, client_msg_id: payload.clientId, image_path: payload.imagePath || null}));
+        rpUnacked.set(payload.clientId, payload);
+      });
+      if (resend.length) {
+        rpIsWaiting = true;
+        updateRPInputState();
+      }
+    }
     } else if (data.type === 'character_message') {
       clearStreamBubble();
       if (data.regenerated) {
@@ -356,6 +384,9 @@ function handleRPMessage(data) {
         target.messageId = data.message_id;
       }
     }
+    if (data.client_msg_id) rpUnacked.delete(data.client_msg_id);
+  } else if (data.type === 'system_notice') {
+    addRPMessage('system', data.text || '', null, null, null, null);
   } else if (data.type === 'summary_updated') {
     showRPSummaryBar(data.summary, data.summarized_count);
     } else if (data.type === 'settings_updated') {
@@ -618,7 +649,27 @@ function continueRPMessage() {
 async function sendRPMessage() {
   const input = document.getElementById('rpMsgInput');
   const text = input.value.trim();
-  if ((!text && !pendingRPImage) || !rpWS || rpWS.readyState !== WebSocket.OPEN) return;
+  if (!text && !pendingRPImage) return;
+  if (!rpWS || rpWS.readyState !== WebSocket.OPEN) {
+    // Queue instead of silently dropping — flushes automatically on
+    // reconnect (an image can't be prepared offline; keep it attached).
+    if (pendingRPImage) {
+      alert('Not connected right now — reconnecting… your image stays attached, hit send again in a moment.');
+      return;
+    }
+    const qClientId = 'rp_' + (++_clientMsgCounter) + '_' + Date.now();
+    const qNoteEl = document.getElementById('rpAuthorNoteInput');
+    let qContent = text;
+    if (qNoteEl && qNoteEl.value.trim()) {
+      qContent = text + "\n\n[Author's Note: " + qNoteEl.value.trim() + ']';
+    }
+    addRPMessage('user', qContent, null, null, qClientId, null);
+    rpOutbox.push({ content: qContent, clientId: qClientId, imagePath: null, directedTo: rpDirectTarget || null });
+    input.value = '';
+    if (qNoteEl) qNoteEl.value = '';
+    addRPMessage('system', 'Not connected — message queued, it sends automatically on reconnect.', null, null, null, null);
+    return;
+  }
 
   // Check for /continue command
   if (text === '/continue' || text === '/cont') {
@@ -652,6 +703,9 @@ async function sendRPMessage() {
 
   const directedTo = rpDirectTarget || null;
   rpWS.send(JSON.stringify({type: 'user_message', content: sendContent, directed_to: directedTo || null, client_msg_id: clientId, image_path: imagePath}));
+  // Until user_message_stored acks this, it counts as undelivered — a
+  // half-open socket accepts the send locally and drops it silently.
+  rpUnacked.set(clientId, { content: sendContent, clientId, imagePath, directedTo });
 
   input.value = '';
   if (noteEl) noteEl.value = '';

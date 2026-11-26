@@ -657,6 +657,22 @@ def _match_speaker(name: str, character_names: dict):
     return None
 
 
+def needs_reply_recovery(messages) -> bool:
+    """True when the exchange ends on an unanswered user TEXT message.
+
+    A disconnect mid-generation or an LLM error leaves the user's last
+    message with no reply; on resume that reply should be generated
+    instead of making him re-send it. Trailing system lines are ignored
+    (they are not part of the exchange); an image-only user message
+    expects no reply (image messages never trigger generation)."""
+    last = None
+    for m in messages or []:
+        if (m.get("role") or "") in ("user", "character"):
+            last = m
+    return bool(last and last.get("role") == "user"
+                and (last.get("content") or "").strip())
+
+
 def split_dialogue_messages(parsed: list, character_names: dict,
                             persona_name: str = None) -> list:
     """Split reply segments at speaker-attributed quoted dialogue.
