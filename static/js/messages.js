@@ -218,6 +218,32 @@ function isUserSideTextName(name) {
   return n === 'you' || n === 'user';
 }
 
+// The LLM sometimes packs several senders' chats into one reply
+// ("Lisa: eh wait\nFarah: ok hurry"). Group the lines by sender so each
+// character's chat gets its own bubble thread instead of nesting under
+// one bubble. Plain lines (no `Name:` prefix) continue the current
+// sender — a two-line text is one text.
+function groupTextLinesBySender(content, fallbackName) {
+  const names = knownTextSenders();
+  const groups = [];
+  for (const raw of (content || '').split('\n')) {
+    const m = matchTextLine(raw, names);
+    const name = m ? m.name : fallbackName;
+    const text = m ? m.text : raw;
+    if (!text.trim()) {
+      if (groups.length) groups[groups.length - 1].lines.push(text);
+      continue;
+    }
+    if (groups.length && groups[groups.length - 1].name === name) {
+      groups[groups.length - 1].lines.push(text);
+    } else {
+      groups.push({ name, lines: [text] });
+    }
+  }
+  if (!groups.length) groups.push({ name: fallbackName, lines: [] });
+  return groups;
+}
+
 // Texting style: drop a leading own-sender `Name:` echo before bubbling
 // (the bubble's side + header already say who sent it).
 function stripOwnSenderPrefix(content, msg) {
@@ -370,38 +396,49 @@ function buildTextMessageDOM(msg, index) {
     : (mm.speaker || 'Character');
 
   if (textingStyle) {
-    // The whole message is the text: one container, ··· bursts, and any
-    // leading own-sender `Name:` echo stripped (side + header carry it).
-    const role = msg.role === 'user' ? 'user' : (msg.role === 'system' ? 'system' : 'character');
-    const div = document.createElement('div');
-    div.className = 'tx-msg ' + role;
-    div.dataset.messageId = msg.messageId || '';
-    div.dataset.clientId = msg.clientId || '';
-    if (isNew) div.classList.add('tx-new');
-
-    const name = nameOf(msg);
+    // The message's text, split per sender: ··· bursts inside a sender's
+    // thread, any leading own-sender `Name:` echo stripped (side + header
+    // carry it), and a packed reply's other senders get their OWN bubble
+    // thread instead of nesting under one bubble.
+    const content = stripOwnSenderPrefix((msg.content || '').trim(), msg);
+    const groups = groupTextLinesBySender(content, nameOf(msg));
     const prev = index > 0 ? rpMessages[index - 1] : null;
     const prevName = nameOf(prev);
-    if (name && (!prev || name !== prevName || prev.role !== msg.role)) {
-      const n = document.createElement('div');
-      n.className = 'tx-name';
-      n.textContent = name;
-      div.appendChild(n);
-    }
+    let lastDiv = null;
+    groups.forEach((g, gi) => {
+      const role = !g.name
+        ? (msg.role === 'system' ? 'system' : (msg.role === 'user' ? 'user' : 'character'))
+        : (isUserSideTextName(g.name) ? 'user' : 'character');
+      const div = document.createElement('div');
+      div.className = 'tx-msg ' + role;
+      div.dataset.messageId = msg.messageId || '';
+      div.dataset.clientId = msg.clientId || '';
+      if (isNew) div.classList.add('tx-new');
 
-    const content = stripOwnSenderPrefix((msg.content || '').trim(), msg);
-    if (content) {
-      splitBursts(content).forEach((text, i) => {
+      const headerAgainst = gi > 0 ? groups[gi - 1].name : prevName;
+      const needHeader = g.name && (gi > 0
+        ? g.name !== headerAgainst
+        : (!prev || g.name !== prevName || prev.role !== msg.role));
+      if (needHeader) {
+        const n = document.createElement('div');
+        n.className = 'tx-name';
+        n.textContent = g.name;
+        div.appendChild(n);
+      }
+
+      splitBursts(g.lines.join('\n')).forEach((text, i) => {
         const bub = document.createElement('div');
         bub.className = 'tx-bubble';
         bub.style.setProperty('--i', String(i));
         bub.innerHTML = formatMessage(text);
         div.appendChild(bub);
       });
-    }
+      frag.appendChild(div);
+      lastDiv = div;
+    });
+    // actions once per message, on its last bubble thread
     const actionsDiv = buildRPActions(msg, index);
-    if (actionsDiv) div.appendChild(actionsDiv);
-    frag.appendChild(div);
+    if (actionsDiv && lastDiv) lastDiv.appendChild(actionsDiv);
     if (msg.imagePath) {
       frag.appendChild(buildImageBalloon(msg.imagePath, '/api/rp/images/', index, deleteRPMessage, msg.imagePrompt, msg.seed));
     }

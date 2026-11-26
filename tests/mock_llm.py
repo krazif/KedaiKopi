@@ -77,6 +77,13 @@ def reply_with_texts(speaker):
         f"I slide the plate across the counter without a word.\n"
         f"{short}: answer me when your hands are free"
     )
+# Packed multi-sender reply (PACKED marker): three chats, two senders —
+# one reply the client must render as three bubbles across two threads
+PACKED_REPLY = (
+    "Lisa: eh wait for me\n"
+    "Farah: ok hurry\n"
+    "Lisa: coming"
+)
 WORDS_PER_FRAME = 2
 FRAME_DELAY = float(os.environ.get("MOCK_FRAME_DELAY", "0.04"))
 REJECT_STREAM = False
@@ -135,7 +142,12 @@ async def chat_completions(request: Request):
         _habit = "HABIT-OK" if "usual look:" in _user_all else "HABIT-NO"
         reply, finish, plain = f"{_pov} {_habit}", "stop", True
     elif "Texting mode" in system_text:
-        reply, finish, plain = BURST_REPLY, "stop", True
+        # PACKED: the model shoves several senders' chats into one reply —
+        # the client must still split them into per-sender bubbles
+        if "PACKED" in last_user_text(messages):
+            reply, finish, plain = PACKED_REPLY, "stop", True
+        else:
+            reply, finish, plain = BURST_REPLY, "stop", True
 
 
     user_text = last_user_text(messages)
