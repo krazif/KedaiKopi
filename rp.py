@@ -230,6 +230,7 @@ async def ws_rp(ws: WebSocket):
                 pov = data.get("pov")
                 inner_monologue = data.get("inner_monologue", False)
                 auto_continue = data.get("auto_continue", True)
+                image_pov = data.get("image_pov") or "auto"
 
                 cards = {}
                 character_names = {}
@@ -280,7 +281,7 @@ async def ws_rp(ws: WebSocket):
                     "characters": [{"filename": fn, "name": character_names[fn]} for fn in character_order],
                     "persona": persona_filename,
                     "response_style": response_style,
-                    "pov": pov, "inner_monologue": inner_monologue, "auto_continue": auto_continue,
+                    "pov": pov, "inner_monologue": inner_monologue, "auto_continue": auto_continue, "image_pov": image_pov,
                     "stack_config": stack_config_json or db.DEFAULT_STACK_CONFIG,
                     "lorebooks": [],
                     "console_events": [],
@@ -313,6 +314,7 @@ async def ws_rp(ws: WebSocket):
                 pov = sess.get("pov")
                 inner_monologue = sess.get("inner_monologue", False)
                 auto_continue = sess.get("auto_continue", True)
+                image_pov = sess.get("image_pov") or "auto"
                 persona_filename = sess["persona_filename"]
 
                 cards = {}
@@ -360,7 +362,7 @@ async def ws_rp(ws: WebSocket):
                     "characters": [{"filename": fn, "name": character_names[fn]} for fn in character_order],
                     "persona": persona_filename,
                     "response_style": response_style,
-                    "pov": pov, "inner_monologue": inner_monologue, "auto_continue": auto_continue,
+                    "pov": pov, "inner_monologue": inner_monologue, "auto_continue": auto_continue, "image_pov": image_pov,
                     "stack_config": stack_cfg,
                     "lorebooks": session_lorebooks,
                     "messages": [{"id": m["id"], "role": m["role"], "speaker": m["speaker"], "content": m["content"], "persona_name": m.get("persona_name"), "image_path": m.get("image_path"), "image_prompt": m.get("image_prompt"), "seed": m.get("seed"), "swipes": m.get("swipes"), "active_swipe": m.get("active_swipe", 0)} for m in messages],
@@ -891,8 +893,9 @@ async def ws_rp(ws: WebSocket):
                     pov = data.get("pov", pov)
                     inner_monologue = data.get("inner_monologue", inner_monologue)
                     auto_continue = data.get("auto_continue", auto_continue)
-                    db.db_rp_update_settings(session_id, response_style, pov=pov, inner_monologue=inner_monologue, auto_continue=auto_continue)
-                    await _safe_send({"type": "settings_updated", "response_style": response_style, "pov": pov, "inner_monologue": inner_monologue, "auto_continue": auto_continue, "system_prompt": engine.build_rp_system_prompt([cards[fn] for fn in character_order], persona, response_style, pov=pov, inner_monologue=inner_monologue) if character_order else ""})
+                    image_pov = data.get("image_pov", image_pov)
+                    db.db_rp_update_settings(session_id, response_style, pov=pov, inner_monologue=inner_monologue, auto_continue=auto_continue, image_pov=image_pov)
+                    await _safe_send({"type": "settings_updated", "response_style": response_style, "pov": pov, "inner_monologue": inner_monologue, "auto_continue": auto_continue, "image_pov": image_pov, "system_prompt": engine.build_rp_system_prompt([cards[fn] for fn in character_order], persona, response_style, pov=pov, inner_monologue=inner_monologue) if character_order else ""})
 
             elif data["type"] == "set_bg_image":
                 if session_id:

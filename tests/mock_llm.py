@@ -127,6 +127,12 @@ async def chat_completions(request: Request):
         reply, finish, plain = LOREBOOK_GEN_JSON, "stop", True
     elif "distill story facts" in system_text:
         reply, finish, plain = DISTILL_FACTS, "stop", True
+    elif "scene captioner" in system_text:
+        # captioner probe: report whether the POV camera block reached us —
+        # the returned caption IS the wire evidence
+        _user_all = "\n".join((mm.get("content") or "") for mm in messages if mm.get("role") == "user")
+        reply, finish, plain = ("POV-CAPTION-OK" if "Camera (fixed): first-person POV" in _user_all
+                                else "POV-CAPTION-MISSING"), "stop", True
     elif "Texting mode" in system_text:
         reply, finish, plain = BURST_REPLY, "stop", True
 

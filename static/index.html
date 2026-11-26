@@ -1384,6 +1384,10 @@ header .status.connected { color:var(--green); }
         <input type="number" id="genSceneHeight" placeholder="H" style="display:none;width:60px;font-size:12px;padding:4px 6px;border-radius:4px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-family:monospace">
       </div>
       <div style="display:flex;gap:8px;justify-content:flex-end">
+        <select id="genScenePov" onchange="rpUpdateSetting('image_pov', this.value)" title="Camera: whose eyes the image is seen from" style="font-size:12px;padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--surface2);color:var(--text)">
+          <option value="auto">POV: Auto (chat decides)</option>
+          <option value="user">POV: My eyes (first person)</option>
+        </select>
         <button class="btn-reset" id="genSceneAutogenBtn" onclick="doAutogenPrompt()" style="font-size:12px;padding:6px 12px">✨ Autogen</button>
         <button class="btn-reset" onclick="autoFillGenScenePrompt()" style="font-size:12px;padding:6px 12px">↻ Auto-fill</button>
         <button class="btn-send" id="genSceneBtn" onclick="doGenerateScene()" style="font-size:13px;padding:8px 20px">Generate</button>

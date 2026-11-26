@@ -178,3 +178,59 @@ class TestParseCaption(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCaptionPov(unittest.TestCase):
+    """POV option: the image is seen from the user's eyes. Field ask:
+    'i want to have an option for pov, means from the pov of the user' —
+    a standing per-session setting both Autogen and the auto-images honor."""
+
+    MSGS = [{"role": "character", "speaker": "Farah", "content": "She waves from the porch."}]
+
+    def test_pov_user_adds_a_fixed_camera_block(self):
+        msgs = imagegen.build_caption_messages(
+            self.MSGS, characters_block="- Farah: dark hair",
+            persona_block="- Razif: tall, short hair", pov="user")
+        user = msgs[1]["content"]
+        self.assertIn("first-person POV", user)
+        self.assertIn("not visible in frame", user)
+        self.assertIn("Razif", user)
+        self.assertIn("faces the camera", user)
+
+    def test_pov_user_reframes_the_persona_block(self):
+        msgs = imagegen.build_caption_messages(
+            self.MSGS, persona_block="- Razif: tall", pov="user")
+        user = msgs[1]["content"]
+        # the persona is the CAMERA, not a subject
+        self.assertIn("camera", user.lower())
+        self.assertNotIn("also visible if the scene shows it", user)
+
+    def test_default_has_no_camera_block(self):
+        msgs = imagegen.build_caption_messages(
+            self.MSGS, persona_block="- Razif: tall")
+        self.assertNotIn("first-person POV", msgs[1]["content"])
+        self.assertIn("also visible if the scene shows it", msgs[1]["content"])
+
+    def test_pov_falls_back_to_the_session_setting(self):
+        # no explicit pov: the session's image_pov decides (autogen path)
+        real = imagegen.db.db_rp_get_session
+        imagegen.db.db_rp_get_session = lambda sid: {"image_pov": "user",
+                                                    "characters": [], "persona_filename": None}
+        try:
+            msgs = imagegen.build_caption_messages(self.MSGS, session_id=7,
+                                                   characters_block="- Farah: dark hair",
+                                                   persona_block="- Razif: tall")
+        finally:
+            imagegen.db.db_rp_get_session = real
+        self.assertIn("first-person POV", msgs[1]["content"])
+
+    def test_explicit_pov_overrides_the_session(self):
+        real = imagegen.db.db_rp_get_session
+        imagegen.db.db_rp_get_session = lambda sid: {"image_pov": "user",
+                                                    "characters": [], "persona_filename": None}
+        try:
+            msgs = imagegen.build_caption_messages(self.MSGS, session_id=7,
+                                                   persona_block="- Razif: tall", pov="auto")
+        finally:
+            imagegen.db.db_rp_get_session = real
+        self.assertNotIn("first-person POV", msgs[1]["content"])

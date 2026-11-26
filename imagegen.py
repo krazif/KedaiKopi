@@ -305,12 +305,17 @@ def caption_session_context(session_id) -> tuple:
 
 def build_caption_messages(messages, session_id=None, characters_block=None,
                            persona_block=None, style=None, word_target=None,
-                           window=None) -> list:
+                           window=None, pov=None) -> list:
     """Assemble [system, user] for the scene captioner.
 
     `window` (config caption_window) trims the chat slice; `style` maps to
     {"medium", "lighting", "mood"} and each non-empty phrase is handed over
     as a use-once budget. Explicit blocks skip the session lookup (tests).
+
+    `pov="user"` renders the frame from the user's eyes (per-session
+    `image_pov` setting; explicit arg wins): a fixed first-person camera —
+    the persona is the camera and never in frame. `None`/`"auto"` leaves
+    the camera to the chat (the system prompt's rule 6).
     """
     if window is None:
         window = db.IMAGEGEN_CAPTION_WINDOW
@@ -320,6 +325,14 @@ def build_caption_messages(messages, session_id=None, characters_block=None,
                  "mood": db.IMAGEGEN_STYLE_MOOD}
     if characters_block is None and persona_block is None and session_id:
         characters_block, persona_block = caption_session_context(session_id)
+    if pov is None and session_id:
+        # autogen path: the standing per-session setting decides
+        try:
+            pov = (db.db_rp_get_session(session_id) or {}).get("image_pov")
+        except Exception:
+            pov = None
+    pov = (pov or "").strip().lower()
+    pov_user = pov == "user"
     window = max(1, int(window))
     convo_lines = []
     for m in list(messages)[-window:]:
@@ -332,7 +345,20 @@ def build_caption_messages(messages, session_id=None, characters_block=None,
                   "Characters in the scene — appearance comes from their cards; this is how they look:",
                   characters_block]
     if persona_block:
-        parts += ["", "The persona you play (also visible if the scene shows it):", persona_block]
+        if pov_user:
+            # the persona IS the camera — identity never rendered
+            parts += ["", "The persona you play is the camera — never visible in frame:", persona_block]
+        else:
+            parts += ["", "The persona you play (also visible if the scene shows it):", persona_block]
+    if pov_user:
+        cam_name = "the user"
+        if persona_block:
+            cam_name = persona_block.lstrip("- ").split(":", 1)[0].strip() or cam_name
+        parts += ["",
+                  f"Camera (fixed): first-person POV — the scene is seen from the eyes of {cam_name}. "
+                  f"{cam_name} is not visible in frame (at most their hands or arms enter it). "
+                  f"Every character faces the camera as if looking at {cam_name}. "
+                  "Compose around this vantage; keep it for the whole caption."]
     budget = [f'{k}="{str(v).strip()}"' for k, v in
               (("medium", style.get("medium")), ("lighting", style.get("lighting")),
                ("mood", style.get("mood"))) if v and str(v).strip()]

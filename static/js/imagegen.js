@@ -26,6 +26,8 @@ function openGenerateSceneModal() {
     rollGenSceneSeed();
   }
   checkComfyUIStatus();
+  const povSel = document.getElementById('genScenePov');
+  if (povSel) povSel.value = (typeof rpImagePov !== 'undefined' && rpImagePov) ? rpImagePov : 'auto';
   doAutogenPrompt();  // prefill with a full MOSS caption (old concat is gone)
   loadImageGallery();
 }
