@@ -151,6 +151,16 @@ async def chat_completions(request: Request):
         reply, finish = CONTINUED, "stop"
     elif "TRUNCATE" in user_text:
         reply, finish = TRUNCATED, "length"
+    elif "RESTATED" in user_text:
+        # same speaker re-states its header mid-reply — the documented
+        # parse hazard (a fresh-reply twin of the continuation case)
+        sp = speaker_from(messages)
+        reply, finish = f"{REPLY}\n[{sp}]: {REPLY}", "stop"
+    elif "TWOSPEAKER" in user_text:
+        # a genuinely different speaker's block after the first
+        sp = speaker_from(messages)
+        other = "Lisa" if sp.split()[0] != "Lisa" else "Farah"
+        reply, finish = f"{REPLY}\n[{other}]: {REPLY}", "stop"
     elif "HUGEREPLY" in user_text:
         reply, finish = HUGE_REPLY, "stop"
     elif "LONGREPLY" in user_text:

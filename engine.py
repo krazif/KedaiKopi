@@ -561,8 +561,30 @@ def build_rp_system_prompt(cards: list[dict], persona: dict = None,
     return "\n".join(parts)
 
 
+def _norm_marker_name(name: str) -> str:
+    """Marker names carry decoration from history marking ("Farah (you)")."""
+    return re.sub(r"\s*\(you\)\s*$", "", (name or "").strip()).strip().lower()
+
+
+def _resolve_marker(name: str, name_to_filename: dict) -> dict:
+    """Map a [Name] marker to its session character, else keep it unknown."""
+    key = _norm_marker_name(name)
+    lookup = name_to_filename.get(key)
+    if lookup:
+        return lookup
+    for lower_name, info in name_to_filename.items():
+        if key and (key in lower_name or lower_name in key):
+            return info
+    return {"filename": None, "name": name}
+
+
 def parse_rp_response(raw_content: str, character_names: dict, character_order: list) -> list[dict]:
-    """Parse [CharacterName]: content format from LLM response."""
+    """Parse [CharacterName]: content format from LLM response.
+
+    A re-stated header of the same speaker continues the SAME turn — the
+    model re-marks mid-reply — so consecutive same-name segments merge.
+    Splitting them silently dropped the streamed tail at finalize ("the
+    message nicely long, suddenly cutted")."""
     responses = []
 
     # Build a mapping of name -> filename (case-insensitive)
@@ -584,23 +606,39 @@ def parse_rp_response(raw_content: str, character_names: dict, character_order: 
         end = matches[i + 1].start() if i + 1 < len(matches) else len(raw_content)
         content = raw_content[start:end].strip()
 
-        # Find matching character
-        lookup = name_to_filename.get(name.lower())
-        if lookup:
-            responses.append({"filename": lookup["filename"], "name": lookup["name"], "content": content})
-        else:
-            # Try partial match
-            found = False
-            for lower_name, info in name_to_filename.items():
-                if name.lower() in lower_name or lower_name in name.lower():
-                    responses.append({"filename": info["filename"], "name": info["name"], "content": content})
-                    found = True
-                    break
-            if not found:
-                # Unknown character — still include
-                responses.append({"filename": None, "name": name, "content": content})
+        resolved = _resolve_marker(name, name_to_filename)
+        if (responses
+                and _norm_marker_name(responses[-1]["name"]) == _norm_marker_name(resolved["name"])):
+            responses[-1]["content"] = (responses[-1]["content"] + "\n" + content).strip()
+            continue
+        responses.append({"filename": resolved["filename"], "name": resolved["name"], "content": content})
 
     return responses
+
+
+def auto_mode_segments(parsed: list, persona_name: str = None, join: bool = False) -> list:
+    """What one auto-mode reply stores — as much of it as is safe to keep.
+
+    The stream already showed the whole reply: keep it. The ONLY blocks
+    dropped are the persona's (the model must not speak for the user) —
+    anything else kept in order, known speaker or not, because dropping
+    is what made long replies "suddenly cutted and become 40~50 words".
+    Falls back to the first segment when nothing survives. join=True
+    merges the survivors into one message (regen: one message in, one
+    swipe out)."""
+    persona_l = _norm_marker_name(persona_name)
+    kept = []
+    for p in parsed:
+        if persona_l and _norm_marker_name(p.get("name")) == persona_l:
+            continue
+        kept.append(p)
+    if not kept:
+        kept = parsed[:1]
+    if join and len(kept) > 1:
+        head = dict(kept[0])
+        head["content"] = "\n".join(k["content"] for k in kept)
+        kept = [head]
+    return kept
 
 
 async def rp_summarize(session_id: int, messages_to_summarize: list[dict],

@@ -503,8 +503,9 @@ async def ws_rp(ws: WebSocket):
                             directed_name = character_names[directed_to]
                             parsed = [{"filename": directed_to, "name": directed_name, "content": engine.strip_bracketed_echo(raw_content.strip())}]
                         elif parsed:
-                            # Auto mode: take only the first character the LLM chose
-                            parsed = parsed[:1]
+                            # Auto mode: keep what the stream showed — every real
+                            # character's block, never the persona's lines
+                            parsed = engine.auto_mode_segments(parsed, persona_name=persona.get("name") if isinstance(persona, dict) else None)
                         else:
                             # No [Name]: prefix — attribute to first character
                             fn = character_order[0] if character_order else None
@@ -689,7 +690,7 @@ async def ws_rp(ws: WebSocket):
                                 directed_name = character_names[directed_to]
                                 parsed = [{"filename": directed_to, "name": directed_name, "content": engine.strip_bracketed_echo(raw_content.strip())}]
                             elif parsed:
-                                parsed = parsed[:1]
+                                parsed = engine.auto_mode_segments(parsed, persona_name=persona.get("name") if isinstance(persona, dict) else None, join=True)
                             else:
                                 fn = character_order[0] if character_order else None
                                 name = character_names.get(fn, "Unknown")
@@ -857,7 +858,7 @@ async def ws_rp(ws: WebSocket):
                                 directed_name = character_names[directed_to]
                                 parsed = [{"filename": directed_to, "name": directed_name, "content": engine.strip_bracketed_echo(raw_content.strip())}]
                             elif parsed:
-                                parsed = parsed[:1]
+                                parsed = engine.auto_mode_segments(parsed, persona_name=persona.get("name") if isinstance(persona, dict) else None)
                             else:
                                 fn = character_order[0] if character_order else None
                                 name = character_names.get(fn, "Unknown")
