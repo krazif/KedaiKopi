@@ -26,7 +26,12 @@ function initVirtualScroll(containerId, messagesArr, visibleCountObj, observerRe
   const obs = new IntersectionObserver((entries) => {
     for (const entry of entries) {
       if (entry.isIntersecting) {
-        // User scrolled to the top — load more
+        // User scrolled to the top — load more. NEVER shrink: capping the
+        // window to messagesArr.length on a SHORT list collapses it (the
+        // sentinel is always visible there, so this callback runs at init)
+        // and Math.min keeps it tiny forever — the field "one by one" bug
+        // where each new message replaced the previous on screen.
+        if (messagesArr.length <= visibleCountObj.value) return;
         const oldCount = visibleCountObj.value;
         visibleCountObj.value = Math.min(visibleCountObj.value + VIRTUAL_SCROLL_BATCH, messagesArr.length);
         if (visibleCountObj.value > oldCount) {
@@ -453,7 +458,6 @@ function deleteRPMessage(index) {
     rpWS.send(JSON.stringify(payload));
   }
   rpMessages.splice(index, 1);
-  rpVisibleCount.value = Math.min(rpVisibleCount.value, rpMessages.length);
   renderVirtualMessages('rpChatMessages', rpMessages, rpVisibleCount.value);
 }
 
@@ -469,7 +473,6 @@ function deleteRPMessageFromHere(index) {
     rpWS.send(JSON.stringify(payload));
   }
   rpMessages.splice(index);
-  rpVisibleCount.value = Math.min(rpVisibleCount.value, rpMessages.length);
   renderVirtualMessages('rpChatMessages', rpMessages, rpVisibleCount.value);
 }
 
@@ -487,7 +490,6 @@ function regenerateRPMessage(index) {
   if (!msgId || !rpWS || rpWS.readyState !== WebSocket.OPEN) return;
   // Remove subsequent messages but keep the target (swipe will update it)
   rpMessages.splice(index + 1);
-  rpVisibleCount.value = Math.min(rpVisibleCount.value, rpMessages.length);
   renderVirtualMessages('rpChatMessages', rpMessages, rpVisibleCount.value);
   // Tell server to truncate after target and regenerate as swipe
   rpWS.send(JSON.stringify({ type: 'regenerate_message', message_id: msgId }));
