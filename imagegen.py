@@ -235,11 +235,11 @@ Read the conversation and character context, then answer with one of two things:
 - ONE English prose caption of the finished frame.
 
 Writing the caption:
-1. Faithfulness. Every subject, action, clothing item and count comes from the chat. Never contradict the chat; invent no props, characters or plot.
+1. Faithfulness. Subject, action and count come from the chat (clothing per 4). Never contradict the chat; invent no props, characters or plot.
 2. Location, in precedence: what the chat states; if the chat only implies it, make the implication explicit; if the chat is silent, the location from the character's scenario; if that is silent too, stay generic ("a simple interior"). Never invent specifics you were not given.
 3. Visuals only — what a camera would see. No dialogue, speech, sounds, thoughts or backstory: spoken lines are never rendered as text. Visible writing the chat mentions (a sign, a note) is quoted verbatim in double quotes with its placement.
-4. Identity comes from the character context below (face, hair, body) — that is how these people look in every image. The chat decides what they do, where they are, and what they are wearing: clothing or nudity follows the chat, never the card's default outfit.
-5. Structure: subject first with its action and position; then setting with word positions (left, right, foreground, background); then camera, medium, light, materials, palette, mood. One subject per clause, concrete verbs, simple prepositions. Plain prose — no lists, no markdown, no quality words ("masterpiece, 8k, ultra-detailed" are banned).
+4. Identity comes from the character context below (face, hair, body). Clothing precedence: the chat's outfit for THIS scene wins; when the chat is silent about clothing, their usual outfit from the card ("usual look"); if none is known, generic. The chat beats the card — never the card's default outfit over it (naked stays naked).
+5. Structure: subject first with its action and position; then setting with word positions (left, right, foreground, background); then camera, medium, light, materials, palette, mood. One subject per clause, concrete verbs, simple prepositions. Plain prose — no lists, markdown, or quality words ("masterpiece, 8k" banned).
 6. Camera: keep any vantage the chat states (POV, first-person, over-the-shoulder, low angle, "seen from behind") and compose around it; otherwise eye level. Never re-frame mid-caption.
 7. Style budget: use each given phrase exactly once — one medium, one lighting, one mood. If none is given, choose fitting ones yourself.
 8. Depict the scene as the chat shows it: nudity, partial nudity and sexual content are described plainly when that is what is happening — never softened, implied, or re-clothed. Sexualized minors are refused with one short refusal line and no caption.
@@ -259,6 +259,34 @@ def _clip(text: str, limit: int) -> str:
     if len(text) <= limit:
         return text
     return text[:limit].rsplit(" ", 1)[0] + "\u2026"
+
+
+def _habit_from_card(card: dict, d: dict) -> str:
+    """The character's usual look/presentation, flattened to one line.
+
+    Lives in the card's character book (V2 top-level or V3 nested) and the
+    example dialogue — the description alone misses "what she usually
+    wears". Budgeted so a fat book cannot flood the captioner.
+    """
+    parts = []
+    book = card.get("character_book") or d.get("character_book") or {}
+    used = 0
+    for e in (book.get("entries") or []):
+        if not e.get("enabled", True):
+            continue
+        content = " ".join(str(e.get("content") or "").split())
+        content = _clip(content, 250)
+        if not content:
+            continue
+        if used + len(content) > 1200:
+            break
+        parts.append(content)
+        used += len(content)
+    mes = " ".join(str(d.get("mes_example") or "").split())
+    mes = _clip(mes, 400)
+    if mes:
+        parts.append(mes)
+    return " ".join(parts)
 
 
 def caption_session_context(session_id) -> tuple:
@@ -290,6 +318,9 @@ def caption_session_context(session_id) -> tuple:
                 line += ": " + desc
             if scen:
                 line += " | scenario: " + scen
+            habit = _habit_from_card(card, d)
+            if habit:
+                line += " | usual look: " + habit
             lines.append(line)
         characters_block = "\n".join(lines)
         pfn = sess.get("persona_filename")

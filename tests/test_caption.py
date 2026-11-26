@@ -234,3 +234,79 @@ class TestCaptionPov(unittest.TestCase):
         finally:
             imagegen.db.db_rp_get_session = real
         self.assertNotIn("first-person POV", msgs[1]["content"])
+
+
+class TestCaptionHabit(unittest.TestCase):
+    """The card's USUAL LOOK must reach the captioner: what the character
+    habitually wears/keeps about them lives in the character book and the
+    example dialogue, not only the description. Field ask: 'did it check
+    the character card? something the character usually wear'."""
+
+    @staticmethod
+    def _fake_db_session():
+        return {"characters": [{"card_filename": "x.json", "char_name": "Farah",
+                                "display_order": 0}],
+                "persona_filename": None}
+
+    @staticmethod
+    def _fake_card():
+        return {"data": {
+            "name": "Farah",
+            "description": "dark hair, sharp eyes",
+            "scenario": "a family house",
+            "mes_example": "{{char}}: *pushes her glasses up* Hello there.",
+            "character_book": {"entries": [
+                {"keys": ["outfit"], "content": "She usually wears a floral kebaya and a green tudung.", "enabled": True},
+                {"keys": ["disabled one"], "content": "NEVER RENDER ME", "enabled": False},
+            ]},
+        }}
+
+    def _context(self, card=None):
+        real_sess, real_load = imagegen.db.db_rp_get_session, imagegen.engine.load_card
+        imagegen.db.db_rp_get_session = lambda sid: self._fake_db_session()
+        imagegen.engine.load_card = lambda fn: card or self._fake_card()
+        try:
+            return imagegen.caption_session_context(7)
+        finally:
+            imagegen.db.db_rp_get_session, imagegen.engine.load_card = real_sess, real_load
+
+    def test_habit_from_character_book_and_mes_example(self):
+        block, _ = self._context()
+        self.assertIn("usually wears a floral kebaya", block)
+        self.assertIn("pushes her glasses up", block)
+
+    def test_disabled_book_entries_are_skipped(self):
+        block, _ = self._context()
+        self.assertNotIn("NEVER RENDER ME", block)
+
+    def test_habit_text_is_flattened_and_bounded(self):
+        card = self._fake_card()
+        card["data"]["character_book"]["entries"] = [
+            {"keys": ["k"], "content": "line one\nline two", "enabled": True}] + [
+            {"keys": [f"k{i}"], "content": "x" * 250, "enabled": True} for i in range(20)]
+        block, _ = self._context(card)
+        self.assertIn("line one line two", block)          # no newline breaks the list
+        self.assertNotIn("\n", block)
+        self.assertLess(len(block), 3000)                   # budget holds
+
+    def test_top_level_v2_character_book_also_read(self):
+        card = self._fake_card()
+        book = card["data"].pop("character_book")
+        card["character_book"] = book                       # V2 placement
+        block, _ = self._context(card)
+        self.assertIn("usually wears a floral kebaya", block)
+
+
+class TestClothingPrecedence(unittest.TestCase):
+    """chat > card habit > generic — the NSFW win (never re-cloth from the
+    card) must survive, scoped to when the chat actually states clothing."""
+
+    def test_precedence_is_spelled_out(self):
+        sysp = imagegen.auto_img_system()
+        self.assertIn("when the chat is silent about clothing", sysp)
+        self.assertIn("usual outfit", sysp)
+
+    def test_chat_still_beats_the_card(self):
+        sysp = imagegen.auto_img_system()
+        self.assertIn("never the card", sysp)     # existing NSFW contract phrase
+        self.assertIn("re-clothed", sysp)

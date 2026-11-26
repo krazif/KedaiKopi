@@ -131,8 +131,9 @@ async def chat_completions(request: Request):
         # captioner probe: report whether the POV camera block reached us —
         # the returned caption IS the wire evidence
         _user_all = "\n".join((mm.get("content") or "") for mm in messages if mm.get("role") == "user")
-        reply, finish, plain = ("POV-CAPTION-OK" if "Camera (fixed): first-person POV" in _user_all
-                                else "POV-CAPTION-MISSING"), "stop", True
+        _pov = "POV-OK" if "Camera (fixed): first-person POV" in _user_all else "POV-NO"
+        _habit = "HABIT-OK" if "usual look:" in _user_all else "HABIT-NO"
+        reply, finish, plain = f"{_pov} {_habit}", "stop", True
     elif "Texting mode" in system_text:
         reply, finish, plain = BURST_REPLY, "stop", True
 
