@@ -616,6 +616,100 @@ def parse_rp_response(raw_content: str, character_names: dict, character_order: 
     return responses
 
 
+# Labels that may sit before a colon but are never a SPEAKER (app markers).
+_NON_SPEAKER_LABELS = {"thoughts", "ooc", "note", "notes", "system", "summary",
+                       "scene", "narration", "prompt", "instruction"}
+# Speaker-attributed quoted dialogue: `Lisa: "Half gone."`, curly quotes too.
+_ATTR_LINE = re.compile(r'^\s*([^:]{1,60}?)\s*:\s*(["\u201c])')
+
+
+def _dialogue_speaker(line: str):
+    """The speaker of an attributed quoted-dialogue line, else None.
+
+    The action tag is stripped to the name ("Aqil, mouth full" -> "Aqil").
+    Every name word must be capitalized so prose like `He said: "..."` is
+    not read as a speaker. Unquoted `Name: message` lines are diegetic
+    phone texts and never match — the PHONE TEXTS protocol says a text
+    carries no quotes."""
+    m = _ATTR_LINE.match(line)
+    if not m:
+        return None
+    tag = m.group(1).strip()
+    name = re.sub(r"\s*[(,]\s*[^)]{0,40}\)?\s*$", "", tag).strip().strip("[]").strip()
+    if not name or len(name.split()) > 4:
+        return None
+    if name.lower() in _NON_SPEAKER_LABELS:
+        return None
+    if not all(w[:1].isupper() for w in name.split() if w):
+        return None
+    return name
+
+
+def _match_speaker(name: str, character_names: dict):
+    """Map a dialogue speaker to a session character's filename, else None."""
+    key = _norm_marker_name(name)
+    for fn, cname in (character_names or {}).items():
+        if _norm_marker_name(cname) == key:
+            return fn
+    for fn, cname in (character_names or {}).items():
+        if key in [t.lower() for t in (cname or "").split()]:
+            return fn
+    return None
+
+
+def split_dialogue_messages(parsed: list, character_names: dict,
+                            persona_name: str = None) -> list:
+    """Split reply segments at speaker-attributed quoted dialogue.
+
+    Each speaker's speech becomes its own message ("separate bubbles per
+    speaker" — Razif's choice); narration runs keep the reply's author;
+    the scene's order is preserved. A speaker chunk absorbs following
+    lines only while its quote is open (multi-line speech); narration
+    after a closed quote returns to the author. Persona/"You" speech
+    folds back into the author's chunk as-is — never a bubble that could
+    pass for the user's own message."""
+    fold = {("you"), ("user")}
+    if persona_name:
+        fold.add(_norm_marker_name(persona_name))
+
+    def _flush(chunks, name, lines):
+        text = "\n".join(lines).strip()
+        if text:
+            chunks.append({"name": name, "text": text})
+
+    out = []
+    for seg in parsed:
+        author = {"filename": seg.get("filename"), "name": seg.get("name")}
+        chunks, cur_name, cur_lines = [], None, []
+
+        def _quote_open(lines):
+            joined = "\n".join(lines)
+            quotes = joined.count('"') + joined.count('\u201c') + joined.count('\u201d')
+            return quotes % 2 == 1
+
+        for line in (seg.get("content") or "").split("\n"):
+            sp = _dialogue_speaker(line)
+            if sp and _norm_marker_name(sp) not in fold:
+                _flush(chunks, cur_name, cur_lines)
+                cur_name, cur_lines = sp, [line[_ATTR_LINE.match(line).start(2):]]
+            elif cur_name is not None and _quote_open(cur_lines):
+                cur_lines.append(line)          # multi-line speech continues
+            elif cur_name is not None:
+                _flush(chunks, cur_name, cur_lines)
+                cur_name, cur_lines = None, [line]
+            else:
+                cur_lines.append(line)          # author narration / folded speech
+        _flush(chunks, cur_name, cur_lines)
+
+        for ch in chunks:
+            if ch["name"] is None:
+                out.append({**author, "content": ch["text"]})
+            else:
+                out.append({"filename": _match_speaker(ch["name"], character_names),
+                            "name": ch["name"], "content": ch["text"]})
+    return out or list(parsed)
+
+
 def auto_mode_segments(parsed: list, persona_name: str = None, join: bool = False) -> list:
     """What one auto-mode reply stores — as much of it as is safe to keep.
 

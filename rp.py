@@ -515,6 +515,8 @@ async def ws_rp(ws: WebSocket):
                         await _safe_send({"type": "character_typing_stopped"})
 
                         if parsed:
+                            # speaker-attributed dialogue gets its own bubble
+                            parsed = engine.split_dialogue_messages(parsed, character_names, persona_name=persona.get("name") if isinstance(persona, dict) else None)
                             for pr in parsed:
                                 msg_id = db.db_rp_add_message(session_id, "character", pr["content"], pr["name"])
                                 await _safe_send({
@@ -867,6 +869,8 @@ async def ws_rp(ws: WebSocket):
                             await _safe_send({"type": "character_typing_stopped"})
 
                             if parsed:
+                                # speaker-attributed dialogue gets its own bubble
+                                parsed = engine.split_dialogue_messages(parsed, character_names, persona_name=persona.get("name") if isinstance(persona, dict) else None)
                                 for pr in parsed:
                                     msg_id = db.db_rp_add_message(session_id, "character", pr["content"], pr["name"])
                                     await _safe_send({

@@ -163,6 +163,15 @@ async def chat_completions(request: Request):
         reply, finish = CONTINUED, "stop"
     elif "TRUNCATE" in user_text:
         reply, finish = TRUNCATED, "length"
+    elif "SCENE" in user_text:
+        # multi-speaker spoken dialogue packed in one reply (Razif's sample)
+        sp = speaker_from(messages)
+        reply, finish = (
+            f"{REPLY}\n\n"
+            'Lisa: "Half gone. Blame your daughter."\n\n'
+            'Farah: "Blame Aqil! He ate like three!"\n\n'
+            'Aqil, mouth full: "Worth it."\n\n'
+            f"{REPLY}"), "stop"
     elif "RESTATED" in user_text:
         # same speaker re-states its header mid-reply — the documented
         # parse hazard (a fresh-reply twin of the continuation case)
