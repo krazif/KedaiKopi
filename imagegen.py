@@ -228,7 +228,7 @@ async def generate_image(prompt_text: str, negative_prompt: str = "", seed: int 
 
 # ─── Auto image prompt generation (Phase 3) ────────────────────────
 
-AUTO_IMG_SYSTEM = """You are the scene captioner for a roleplay chat app feeding an image generation model — a text-to-image model trained on captions of FINISHED IMAGES, not instructions, and built for long descriptive prompts.
+AUTO_IMG_SYSTEM = """You are the scene captioner for a roleplay chat app feeding an image generation model trained on captions of FINISHED IMAGES, not instructions, and built for long descriptive prompts.
 
 Read the conversation and character context, then answer with one of two things:
 - SKIP — the exchange is mundane (greetings, short talk, no visual change, OOC chatter).
@@ -412,7 +412,7 @@ def build_caption_messages(messages, session_id=None, characters_block=None,
                ("mood", style.get("mood"))) if v and str(v).strip()]
     if budget:
         parts += ["", "Style budget — use each exactly once: " + "; ".join(budget)]
-    parts += ["", "Write the MOSS-Image caption, or SKIP."]
+    parts += ["", "Write the scene caption, or SKIP."]
     return [{"role": "system", "content": auto_img_system(word_target, token_cap=token_cap)},
             {"role": "user", "content": "\n".join(parts)}]
 

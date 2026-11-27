@@ -83,7 +83,7 @@ class TestBuildCaptionMessages(unittest.TestCase):
             word_target=200)
         self.assertEqual([m["role"] for m in msgs], ["system", "user"])
         self.assertIn("target 200 words", msgs[0]["content"])
-        self.assertIn("MOSS-Image caption, or SKIP", msgs[1]["content"])
+        self.assertIn("scene caption, or SKIP", msgs[1]["content"])
 
     def test_character_and_persona_blocks_are_included(self):
         msgs = imagegen.build_caption_messages(
