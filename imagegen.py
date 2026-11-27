@@ -119,6 +119,48 @@ def _extract_output_filename(history_entry: dict):
     return None, None, None
 
 
+def build_workflow(prompt_text: str, negative_prompt: str = "", seed: int | None = None,
+                   width: int | None = None, height: int | None = None,
+                   seed_val=None) -> dict:
+    """Assemble the ComfyUI workflow (custom template or default).
+
+    String placeholders (%positive% / %negative%) are substituted with a
+    FULLY JSON-escaped value (json.dumps' inner string), so captions with
+    line breaks, tabs, quotes or backslashes can never corrupt the
+    workflow JSON — a hand-rolled escape that covered only \ and " used
+    to raise json.loads on long wrapped captions and crash the endpoint
+    with a bare 500. Numeric placeholders (%width% and friends) still
+    land as raw JSON numbers."""
+    if seed_val is None:
+        seed_val = _resolve_seed(seed)
+    if not (db.IMAGEGEN_WORKFLOW and isinstance(db.IMAGEGEN_WORKFLOW, dict)):
+        return _default_workflow(prompt_text, negative_prompt or db.IMAGEGEN_NEGATIVE,
+                                 seed=seed, width=width, height=height)
+    # Serialize → replace → parse so placeholders can appear anywhere.
+    neg_text = negative_prompt or db.IMAGEGEN_NEGATIVE or "bad quality, low resolution, blurry"
+    string_replacements = {
+        "%positive%": prompt_text,
+        "%negative%": neg_text,
+    }
+    numeric_replacements = {
+        "%width%": width if width is not None else db.IMAGEGEN_WIDTH,
+        "%height%": height if height is not None else db.IMAGEGEN_HEIGHT,
+        "%steps%": db.IMAGEGEN_STEPS,
+        "%cfg%": db.IMAGEGEN_CFG_SCALE,
+        "%seed%": seed_val,
+    }
+    workflow_json = json.dumps(db.IMAGEGEN_WORKFLOW)
+    # String placeholders: the inner part of json.dumps is a complete
+    # JSON-escape of the value (newlines, control chars, quotes, \).
+    for placeholder, value in string_replacements.items():
+        workflow_json = workflow_json.replace(placeholder, json.dumps(value)[1:-1])
+    # Numeric placeholders: quoted "%placeholder%" becomes a raw number.
+    for placeholder, value in numeric_replacements.items():
+        workflow_json = workflow_json.replace(f'"{placeholder}"', str(value))
+        workflow_json = workflow_json.replace(placeholder, str(value))
+    return json.loads(workflow_json)
+
+
 async def generate_image(prompt_text: str, negative_prompt: str = "", seed: int | None = None, width: int | None = None, height: int | None = None) -> dict:
     """
     Call ComfyUI to generate an image from a text prompt.
@@ -134,36 +176,8 @@ async def generate_image(prompt_text: str, negative_prompt: str = "", seed: int 
 
     # Build workflow (custom or default)
     seed_val = _resolve_seed(seed)
-    if db.IMAGEGEN_WORKFLOW and isinstance(db.IMAGEGEN_WORKFLOW, dict):
-        # Inject prompt/negative via %positive% / %negative% placeholders.
-        # Serialize → replace → parse so placeholders can appear anywhere in the workflow.
-        neg_text = negative_prompt or db.IMAGEGEN_NEGATIVE or "bad quality, low resolution, blurry"
-        # String placeholders: replaced as escaped JSON strings
-        string_replacements = {
-            "%positive%": prompt_text,
-            "%negative%": neg_text,
-        }
-        # Numeric placeholders: must be injected as raw JSON numbers, not quoted strings.
-        # We do this by replacing the quoted placeholder " %placeholder% " with the raw number.
-        numeric_replacements = {
-            "%width%": width if width is not None else db.IMAGEGEN_WIDTH,
-            "%height%": height if height is not None else db.IMAGEGEN_HEIGHT,
-            "%steps%": db.IMAGEGEN_STEPS,
-            "%cfg%": db.IMAGEGEN_CFG_SCALE,
-            "%seed%": seed_val,
-        }
-        workflow_json = json.dumps(db.IMAGEGEN_WORKFLOW)
-        # String replacements (escape for JSON)
-        for placeholder, value in string_replacements.items():
-            workflow_json = workflow_json.replace(placeholder, value.replace("\\", "\\\\").replace('"', '\\"'))
-        # Numeric replacements: replace quoted "%placeholder%" with raw number (unquoted)
-        for placeholder, value in numeric_replacements.items():
-            workflow_json = workflow_json.replace(f'"{placeholder}"', str(value))
-            # Also replace bare %placeholder% for inline use in text strings
-            workflow_json = workflow_json.replace(placeholder, str(value))
-        workflow = json.loads(workflow_json)
-    else:
-        workflow = _default_workflow(prompt_text, negative_prompt or db.IMAGEGEN_NEGATIVE, seed=seed, width=width, height=height)
+    workflow = build_workflow(prompt_text, negative_prompt, seed=seed,
+                              width=width, height=height, seed_val=seed_val)
 
     try:
         async with httpx.AsyncClient(timeout=30) as client:
@@ -572,8 +586,14 @@ async def api_generate_image(request: Request):
         except (ValueError, TypeError):
             seed_override = None
 
-    result = await generate_image(prompt_text, negative, seed=seed_override,
-                                  width=body.get("width"), height=body.get("height"))
+    try:
+        result = await generate_image(prompt_text, negative, seed=seed_override,
+                                      width=body.get("width"), height=body.get("height"))
+    except Exception as e:
+        # a crash here used to escape as Uvicorn's plain-text 500 and the
+        # frontend died on JSON.parse("Internal Server Error")
+        return JSONResponse({"success": False, "error": f"Image generation failed: {e}"},
+                            status_code=500)
     if not result["success"]:
         return JSONResponse(result, status_code=500)
     return JSONResponse(result)

@@ -110,7 +110,8 @@ async function checkComfyUIStatus() {
   dot.title = 'Checking ComfyUI...';
   try {
     const r = await fetch('/api/imagegen/status');
-    const j = await r.json();
+    // a plain-text 500 ("Internal Server Error") must not die on JSON.parse
+    const j = await r.json().catch(() => ({ success: false, error: 'Server error (HTTP ' + r.status + ')' }));
     if (j.enabled && j.reachable) {
       dot.style.background = '#4ade80';
       dot.title = 'ComfyUI connected ✓';
@@ -326,7 +327,8 @@ async function doAutogenPrompt() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ messages: recent, session_id: rpActiveSessionId }),
     });
-    const j = await r.json();
+    // a plain-text 500 ("Internal Server Error") must not die on JSON.parse
+    const j = await r.json().catch(() => ({ success: false, error: 'Server error (HTTP ' + r.status + ')' }));
     if (!j.success) {
       statusEl.textContent = '✗ ' + (j.error || 'Autogen failed');
     } else if (j.skipped || !j.prompt) {
@@ -363,7 +365,8 @@ async function doGenerateScene() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    const j = await r.json();
+    // a plain-text 500 ("Internal Server Error") must not die on JSON.parse
+    const j = await r.json().catch(() => ({ success: false, error: 'Server error (HTTP ' + r.status + ')' }));
     if (!j.success) {
       statusEl.textContent = '✗ ' + (j.error || 'Generation failed');
       btn.disabled = false;
@@ -433,7 +436,8 @@ async function doRegenerateScene() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    const j = await r.json();
+    // a plain-text 500 ("Internal Server Error") must not die on JSON.parse
+    const j = await r.json().catch(() => ({ success: false, error: 'Server error (HTTP ' + r.status + ')' }));
     if (!j.success) {
       statusEl.textContent = '✗ ' + (j.error || 'Generation failed');
       btn.disabled = false;
