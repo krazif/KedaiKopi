@@ -244,7 +244,7 @@ Writing the caption:
 7. Style budget: use each given phrase exactly once — one medium, one lighting, one mood. If none is given, choose fitting ones yourself.
 8. Depict the scene as the chat shows it: nudity, partial nudity and sexual content are described plainly when that is what is happening — never softened, implied, or re-clothed. Sexualized minors are refused with one short refusal line and no caption.
 9. No living artists — translate a named artist into observable traits instead.
-10. Output: one paragraph, target {words} words, hard ceiling {tokens} tokens. Reply with the caption alone — or the single word SKIP. No preamble, no wrapping quotes, no explanation."""
+10. Output: one paragraph, target {words} words — approach the {tokens}-token ceiling, never over it. Reply with the caption alone — or the single word SKIP. No preamble, no wrapping quotes, no explanation."""
 
 
 # Selectable output ceilings (the Scene gen panel's token select).
@@ -253,15 +253,21 @@ TOKEN_CAPS = (512, 1024, 2048, 4096)
 
 def auto_img_system(word_target=None, token_cap=None) -> str:
     """The captioner's system prompt; {words} from config, {tokens} the
-    selectable output ceiling (default 512; unknown values fall back)."""
-    if word_target is None:
-        word_target = db.IMAGEGEN_CAPTION_WORDS
+    selectable output ceiling (default 512; unknown values fall back).
+
+    Above 512 the selection is a LENGTH choice, not just a cap — the
+    word target scales with it (~1.33 tokens/word leaves headroom under
+    the ceiling). An explicit word_target stays authoritative."""
     try:
         token_cap = int(token_cap)
     except (TypeError, ValueError):
         token_cap = 512
     if token_cap not in TOKEN_CAPS:
         token_cap = 512
+    if word_target is None:
+        word_target = db.IMAGEGEN_CAPTION_WORDS
+        if token_cap > 512:
+            word_target = max(word_target, round(token_cap * 0.6))
     return AUTO_IMG_SYSTEM.replace("{words}", str(word_target)).replace("{tokens}", str(token_cap))
 
 

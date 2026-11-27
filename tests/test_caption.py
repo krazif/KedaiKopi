@@ -18,7 +18,7 @@ class TestCaptionSystemPrompt(unittest.TestCase):
         sysp = imagegen.auto_img_system()
         self.assertIn("FINISHED IMAGES", sysp)
         self.assertIn("SKIP", sysp)
-        self.assertIn("512 tokens", sysp)
+        self.assertIn("512-token ceiling", sysp)
 
     def test_old_tag_soup_spec_is_gone(self):
         sysp = imagegen.auto_img_system()
@@ -325,18 +325,18 @@ class TestCaptionTokenCap(unittest.TestCase):
         return msgs[0]["content"]
 
     def test_default_ceiling_is_512(self):
-        self.assertIn("hard ceiling 512 tokens", self.cap_of())
+        self.assertIn("512-token ceiling", self.cap_of())
 
     def test_explicit_cap_fills_the_slot(self):
         content = self.cap_of(token_cap=2048)
-        self.assertIn("hard ceiling 2048 tokens", content)
-        self.assertNotIn("hard ceiling 512", content)
+        self.assertIn("2048-token ceiling", content)
+        self.assertNotIn("512-token", content)
 
     def test_cap_falls_back_to_the_session_setting(self):
         real = imagegen.db.db_rp_get_session
         imagegen.db.db_rp_get_session = lambda sid: {"image_token_cap": "4096"}
         try:
-            self.assertIn("hard ceiling 4096 tokens", self.cap_of(session_id=7))
+            self.assertIn("4096-token ceiling", self.cap_of(session_id=7))
         finally:
             imagegen.db.db_rp_get_session = real
 
@@ -344,13 +344,27 @@ class TestCaptionTokenCap(unittest.TestCase):
         real = imagegen.db.db_rp_get_session
         imagegen.db.db_rp_get_session = lambda sid: {"image_token_cap": "4096"}
         try:
-            self.assertIn("hard ceiling 1024 tokens",
+            self.assertIn("1024-token ceiling",
                           self.cap_of(session_id=7, token_cap=1024))
         finally:
             imagegen.db.db_rp_get_session = real
 
     def test_unknown_cap_falls_back_to_512(self):
-        self.assertIn("hard ceiling 512 tokens", self.cap_of(token_cap=777))
+        self.assertIn("512-token ceiling", self.cap_of(token_cap=777))
 
     def test_rule_ten_keeps_the_ceiling_slot(self):
-        self.assertIn("hard ceiling {tokens} tokens", imagegen.AUTO_IMG_SYSTEM)
+        self.assertIn("{tokens}-token ceiling", imagegen.AUTO_IMG_SYSTEM)
+
+    def test_word_target_scales_with_the_selection(self):
+        # the selection is a LENGTH choice, not just a cap: 2048 -> ~1229
+        # words (~1.33 tokens/word, headroom under the ceiling)
+        self.assertIn("target 1229 words", self.cap_of(token_cap=2048))
+
+    def test_default_word_target_is_unchanged(self):
+        self.assertIn(f"target {imagegen.db.IMAGEGEN_CAPTION_WORDS} words",
+                      self.cap_of())
+
+    def test_explicit_word_target_beats_the_scale(self):
+        content = imagegen.auto_img_system(250, token_cap=2048)
+        self.assertIn("target 250 words", content)
+        self.assertIn("2048-token ceiling", content)
