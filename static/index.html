@@ -1388,6 +1388,12 @@ header .status.connected { color:var(--green); }
           <option value="auto">POV: Auto (chat decides)</option>
           <option value="user">POV: My eyes (first person)</option>
         </select>
+        <select id="genSceneTokens" onchange="rpUpdateSetting('image_token_cap', this.value)" title="Caption output ceiling in tokens" style="font-size:12px;padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--surface2);color:var(--text)">
+          <option value="512">Tokens: 512</option>
+          <option value="1024">Tokens: 1024</option>
+          <option value="2048">Tokens: 2048</option>
+          <option value="4096">Tokens: 4096</option>
+        </select>
         <button class="btn-reset" id="genSceneAutogenBtn" onclick="doAutogenPrompt()" style="font-size:12px;padding:6px 12px">✨ Autogen</button>
         <button class="btn-reset" onclick="autoFillGenScenePrompt()" style="font-size:12px;padding:6px 12px">↻ Auto-fill</button>
         <button class="btn-send" id="genSceneBtn" onclick="doGenerateScene()" style="font-size:13px;padding:8px 20px">Generate</button>

@@ -117,6 +117,12 @@ def init_db():
         conn.execute("ALTER TABLE rp_sessions ADD COLUMN image_pov TEXT")
     except Exception:
         pass
+    # Migration: add image_token_cap column to rp_sessions (selectable
+    # captioner output ceiling: 512/1024/2048/4096, default 512)
+    try:
+        conn.execute("ALTER TABLE rp_sessions ADD COLUMN image_token_cap TEXT")
+    except Exception:
+        pass
     # Migration: add auto_continue column to rp_sessions
     try:
         conn.execute("ALTER TABLE rp_sessions ADD COLUMN auto_continue INTEGER DEFAULT 0")
@@ -425,7 +431,7 @@ def db_rp_get_messages(session_id: int) -> list[dict]:
 def db_rp_get_session(session_id: int) -> Optional[dict]:
     conn = _connect()
     row = conn.execute(
-        "SELECT id, title, persona_filename, turn_routing, response_style, stack_config, console_events, lorebooks, bg_image, pov, inner_monologue, auto_continue, image_pov FROM rp_sessions WHERE id = ?",
+        "SELECT id, title, persona_filename, turn_routing, response_style, stack_config, console_events, lorebooks, bg_image, pov, inner_monologue, auto_continue, image_pov, image_token_cap FROM rp_sessions WHERE id = ?",
         (session_id,),
     ).fetchone()
     if not row:
@@ -447,6 +453,7 @@ def db_rp_get_session(session_id: int) -> Optional[dict]:
             "inner_monologue": bool(row[10]) if len(row) > 10 and row[10] else False,
             "auto_continue": bool(row[11]) if len(row) > 11 and row[11] else False,
             "image_pov": row[12] if len(row) > 12 and row[12] else None,
+            "image_token_cap": row[13] if len(row) > 13 and row[13] else None,
             "characters": [{"card_filename": c[0], "char_name": c[1], "display_order": c[2]} for c in chars],
     }
 
@@ -704,7 +711,7 @@ def db_rp_count_messages(session_id: int) -> int:
 def db_rp_update_settings(session_id: int, turn_routing: str = None, response_style: str = None,
                            stack_config: str = None, lorebooks: str = None, bg_image: str = None,
                            pov: str = None, inner_monologue: bool = None, auto_continue: bool = None,
-                           image_pov: str = None) -> None:
+                           image_pov: str = None, image_token_cap: str = None) -> None:
     conn = _connect()
     updates = []
     params = []
@@ -735,6 +742,9 @@ def db_rp_update_settings(session_id: int, turn_routing: str = None, response_st
     if image_pov is not None:
         updates.append("image_pov = ?")
         params.append(image_pov)
+    if image_token_cap is not None:
+        updates.append("image_token_cap = ?")
+        params.append(image_token_cap)
     if updates:
         updates.append("updated_at = datetime('now')")
         params.append(session_id)
@@ -833,12 +843,12 @@ def db_rp_fork_session(session_id: int) -> Optional[dict]:
         cur = conn.execute(
             """INSERT INTO rp_sessions
            (title, persona_filename, turn_routing, response_style,
-             stack_config, console_events, lorebooks, pov, inner_monologue, bg_image, auto_continue, image_pov)
+             stack_config, console_events, lorebooks, pov, inner_monologue, bg_image, auto_continue, image_pov, image_token_cap)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (fork_title, sess['persona_filename'], sess['turn_routing'], sess['response_style'],
              sess.get('stack_config'), sess.get('console_events'), sess.get('lorebooks'),
              sess.get('pov'), sess.get('inner_monologue', 0), sess.get('bg_image'),
-             1 if sess.get('auto_continue') else 0, sess.get('image_pov')),
+             1 if sess.get('auto_continue') else 0, sess.get('image_pov'), sess.get('image_token_cap')),
         )
         new_sid = cur.lastrowid
         # Copy characters

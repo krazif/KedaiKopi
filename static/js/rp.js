@@ -8,7 +8,8 @@ let rpCharacters = [];      // [{filename, name}]
 let rpPersonaFilename = null;
 let rpResponseStyle = 'moderate';
 let rpPov = null;
-let rpImagePov = null;   // imagegen camera: 'user' = first-person from the user's eyes
+let rpImagePov = null;
+let rpImageTokenCap = null;   // captioner output token ceiling (512/1024/2048/4096)   // imagegen camera: 'user' = first-person from the user's eyes
 let rpInnerMonologue = false;
 let rpAutoContinue = true;  // auto-continue truncated responses
 let rpDirectTarget = '';     // '' = Auto; else a character filename — the
@@ -205,7 +206,7 @@ function handleRPMessage(data) {
     initRPTextView(data.response_style);
     rpDirectTarget = '';
     rpPov = data.pov || null;
-    rpImagePov = data.image_pov || null;
+    rpImagePov = data.image_pov || null; rpImageTokenCap = data.image_token_cap || null;
     rpInnerMonologue = data.inner_monologue || false;
     rpAutoContinue = data.auto_continue !== undefined ? data.auto_continue : true;
     rpStackConfig = data.stack_config || null;
@@ -244,7 +245,7 @@ function handleRPMessage(data) {
     initRPTextView(data.response_style);
     rpDirectTarget = '';
     rpPov = data.pov || null;
-    rpImagePov = data.image_pov || null;
+    rpImagePov = data.image_pov || null; rpImageTokenCap = data.image_token_cap || null;
     rpInnerMonologue = data.inner_monologue || false;
     rpAutoContinue = data.auto_continue !== undefined ? data.auto_continue : true;
      rpStackConfig = data.stack_config || null;
@@ -392,7 +393,7 @@ function handleRPMessage(data) {
     } else if (data.type === 'settings_updated') {
       rpResponseStyle = data.response_style;
       rpPov = data.pov || null;
-      rpImagePov = data.image_pov || null;
+      rpImagePov = data.image_pov || null; rpImageTokenCap = data.image_token_cap || null;
       rpInnerMonologue = data.inner_monologue || false;
       rpAutoContinue = data.auto_continue !== undefined ? data.auto_continue : true;
       if (data.system_prompt !== undefined) {
@@ -913,6 +914,7 @@ function rpUpdateSetting(key, value) {
   // update local state immediately for responsive UI
   if (key === 'pov') rpPov = value || null;
   else if (key === 'image_pov') rpImagePov = value || null;
+  else if (key === 'image_token_cap') rpImageTokenCap = value || null;
   else if (key === 'inner_monologue') rpInnerMonologue = !!value;
   else if (key === 'auto_continue') rpAutoContinue = !!value;
   else if (key === 'response_style') {

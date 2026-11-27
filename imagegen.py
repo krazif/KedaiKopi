@@ -228,7 +228,7 @@ async def generate_image(prompt_text: str, negative_prompt: str = "", seed: int 
 
 # ─── Auto image prompt generation (Phase 3) ────────────────────────
 
-AUTO_IMG_SYSTEM = """You are the scene captioner for a roleplay chat app feeding MOSS-Image — a text-to-image model trained on captions of FINISHED IMAGES, not instructions, and built for long descriptive prompts.
+AUTO_IMG_SYSTEM = """You are the scene captioner for a roleplay chat app feeding an image generation model — a text-to-image model trained on captions of FINISHED IMAGES, not instructions, and built for long descriptive prompts.
 
 Read the conversation and character context, then answer with one of two things:
 - SKIP — the exchange is mundane (greetings, short talk, no visual change, OOC chatter).
@@ -244,14 +244,25 @@ Writing the caption:
 7. Style budget: use each given phrase exactly once — one medium, one lighting, one mood. If none is given, choose fitting ones yourself.
 8. Depict the scene as the chat shows it: nudity, partial nudity and sexual content are described plainly when that is what is happening — never softened, implied, or re-clothed. Sexualized minors are refused with one short refusal line and no caption.
 9. No living artists — translate a named artist into observable traits instead.
-10. Output: one paragraph, target {words} words, hard ceiling 512 tokens. Reply with the caption alone — or the single word SKIP. No preamble, no wrapping quotes, no explanation."""
+10. Output: one paragraph, target {words} words, hard ceiling {tokens} tokens. Reply with the caption alone — or the single word SKIP. No preamble, no wrapping quotes, no explanation."""
 
 
-def auto_img_system(word_target=None) -> str:
-    """The captioner's system prompt; {words} filled from config."""
+# Selectable output ceilings (the Scene gen panel's token select).
+TOKEN_CAPS = (512, 1024, 2048, 4096)
+
+
+def auto_img_system(word_target=None, token_cap=None) -> str:
+    """The captioner's system prompt; {words} from config, {tokens} the
+    selectable output ceiling (default 512; unknown values fall back)."""
     if word_target is None:
         word_target = db.IMAGEGEN_CAPTION_WORDS
-    return AUTO_IMG_SYSTEM.replace("{words}", str(word_target))
+    try:
+        token_cap = int(token_cap)
+    except (TypeError, ValueError):
+        token_cap = 512
+    if token_cap not in TOKEN_CAPS:
+        token_cap = 512
+    return AUTO_IMG_SYSTEM.replace("{words}", str(word_target)).replace("{tokens}", str(token_cap))
 
 
 def _clip(text: str, limit: int) -> str:
@@ -336,7 +347,7 @@ def caption_session_context(session_id) -> tuple:
 
 def build_caption_messages(messages, session_id=None, characters_block=None,
                            persona_block=None, style=None, word_target=None,
-                           window=None, pov=None) -> list:
+                           window=None, pov=None, token_cap=None) -> list:
     """Assemble [system, user] for the scene captioner.
 
     `window` (config caption_window) trims the chat slice; `style` maps to
@@ -362,6 +373,12 @@ def build_caption_messages(messages, session_id=None, characters_block=None,
             pov = (db.db_rp_get_session(session_id) or {}).get("image_pov")
         except Exception:
             pov = None
+    if token_cap is None and session_id:
+        # same standing-setting pattern as the POV option
+        try:
+            token_cap = (db.db_rp_get_session(session_id) or {}).get("image_token_cap")
+        except Exception:
+            token_cap = None
     pov = (pov or "").strip().lower()
     pov_user = pov == "user"
     window = max(1, int(window))
@@ -396,7 +413,7 @@ def build_caption_messages(messages, session_id=None, characters_block=None,
     if budget:
         parts += ["", "Style budget — use each exactly once: " + "; ".join(budget)]
     parts += ["", "Write the MOSS-Image caption, or SKIP."]
-    return [{"role": "system", "content": auto_img_system(word_target)},
+    return [{"role": "system", "content": auto_img_system(word_target, token_cap=token_cap)},
             {"role": "user", "content": "\n".join(parts)}]
 
 

@@ -310,3 +310,47 @@ class TestClothingPrecedence(unittest.TestCase):
         sysp = imagegen.auto_img_system()
         self.assertIn("never the card", sysp)     # existing NSFW contract phrase
         self.assertIn("re-clothed", sysp)
+
+
+class TestCaptionTokenCap(unittest.TestCase):
+    """Selectable output token ceiling (512/1024/2048/4096). Field ask:
+    'can we have the hard tokens ceiling can be selected' — a standing
+    per-session setting like image_pov, default 512."""
+
+    MSGS = [{"role": "character", "speaker": "Farah", "content": "She waves."}]
+
+    def cap_of(self, **kw):
+        msgs = imagegen.build_caption_messages(
+            self.MSGS, characters_block="- Farah: dark hair", **kw)
+        return msgs[0]["content"]
+
+    def test_default_ceiling_is_512(self):
+        self.assertIn("hard ceiling 512 tokens", self.cap_of())
+
+    def test_explicit_cap_fills_the_slot(self):
+        content = self.cap_of(token_cap=2048)
+        self.assertIn("hard ceiling 2048 tokens", content)
+        self.assertNotIn("hard ceiling 512", content)
+
+    def test_cap_falls_back_to_the_session_setting(self):
+        real = imagegen.db.db_rp_get_session
+        imagegen.db.db_rp_get_session = lambda sid: {"image_token_cap": "4096"}
+        try:
+            self.assertIn("hard ceiling 4096 tokens", self.cap_of(session_id=7))
+        finally:
+            imagegen.db.db_rp_get_session = real
+
+    def test_explicit_cap_wins_over_the_session_setting(self):
+        real = imagegen.db.db_rp_get_session
+        imagegen.db.db_rp_get_session = lambda sid: {"image_token_cap": "4096"}
+        try:
+            self.assertIn("hard ceiling 1024 tokens",
+                          self.cap_of(session_id=7, token_cap=1024))
+        finally:
+            imagegen.db.db_rp_get_session = real
+
+    def test_unknown_cap_falls_back_to_512(self):
+        self.assertIn("hard ceiling 512 tokens", self.cap_of(token_cap=777))
+
+    def test_rule_ten_keeps_the_ceiling_slot(self):
+        self.assertIn("hard ceiling {tokens} tokens", imagegen.AUTO_IMG_SYSTEM)

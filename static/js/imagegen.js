@@ -28,6 +28,8 @@ function openGenerateSceneModal() {
   checkComfyUIStatus();
   const povSel = document.getElementById('genScenePov');
   if (povSel) povSel.value = (typeof rpImagePov !== 'undefined' && rpImagePov) ? rpImagePov : 'auto';
+  const tokSel = document.getElementById('genSceneTokens');
+  if (tokSel) tokSel.value = (typeof rpImageTokenCap !== 'undefined' && rpImageTokenCap) ? rpImageTokenCap : '512';
   doAutogenPrompt();  // prefill with a full MOSS caption (old concat is gone)
   loadImageGallery();
 }

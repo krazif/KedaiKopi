@@ -140,7 +140,8 @@ async def chat_completions(request: Request):
         _user_all = "\n".join((mm.get("content") or "") for mm in messages if mm.get("role") == "user")
         _pov = "POV-OK" if "Camera (fixed): first-person POV" in _user_all else "POV-NO"
         _habit = "HABIT-OK" if "usual look:" in _user_all else "HABIT-NO"
-        reply, finish, plain = f"{_pov} {_habit}", "stop", True
+        _cap = system_text.split("hard ceiling ")[1].split(" ")[0] if "hard ceiling " in system_text else "?"
+        reply, finish, plain = f"{_pov} {_habit} TOKENS-{_cap}", "stop", True
     elif "Texting mode" in system_text:
         # PACKED: the model shoves several senders' chats into one reply —
         # the client must still split them into per-sender bubbles
